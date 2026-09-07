@@ -1,0 +1,21 @@
+{
+  "experiment": "C29.2 Executable Vortex 1.0 Engine Integration",
+  "status": "FAIL",
+  "pytest_stdout": "ERROR collecting legacy_c27_3/tests/test_engine.py: ImportError: cannot import name 'Ledger' from 'vortex.ledger'. Initial integration failure preserved from canonical Library artifact.",
+  "sample_run": {
+    "recommended": {"action": "act", "utility": 0.2, "p_catastrophe": 0.02, "admissible": true},
+    "receipt": {"receipt_id": "6f1d9e331a9343a32a2b7c3e", "sha256": "6f1d9e331a9343a32a2b7c3e057cc608b0254afa62753e4e79481b455a161d5b"}
+  },
+  "gates": {
+    "canonical_pipeline_executable": "PASS",
+    "known_at_firewall": "FAIL",
+    "representation_regime_operator_unknown": "FAIL",
+    "catastrophe_constraint": "FAIL",
+    "wait_abstain_legal": "FAIL",
+    "immutable_failure_semantics": "FAIL",
+    "domain_adapter_interface": "PASS",
+    "immutable_receipt": "PASS"
+  },
+  "scope": "Engineering architecture validation only. Reference adapter predictive skill is not claimed.",
+  "recovery_note": "This compact Git representation preserves the original FAIL semantics. The canonical Library ZIP SHA-256 is 381d887db1b3f58901a092c2a08b822070ebef828540623a8a40f47d4409cd96. Exact original artifact remains immutable recovery evidence."
+}
