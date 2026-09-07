@@ -1,0 +1,13 @@
+{
+  "gates": [
+    "SDK package imports",
+    "valid adapter accepted",
+    "canonical S/R/Z/O/F pipeline executes",
+    "UNKNOWN retained for R/Z/O",
+    "known_at firewall cannot be bypassed by adapter",
+    "adapter cannot drop Core invariants",
+    "targets/metrics/baselines declared before evaluation",
+    "domain implementation isolated from Core runtime"
+  ],
+  "frozen_before_test": true
+}
