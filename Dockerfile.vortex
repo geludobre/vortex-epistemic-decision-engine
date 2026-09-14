@@ -1,0 +1,31 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ARG SOURCE_GIT_SHA
+RUN echo "$SOURCE_GIT_SHA" | grep -Eq '^[0-9a-f]{40}$'
+
+COPY pyproject.toml /app/pyproject.toml
+COPY vortex /app/vortex
+COPY schemas /app/schemas
+COPY services/decision-api /app/services/decision-api
+RUN printf '%s\n' "$SOURCE_GIT_SHA" > /app/SOURCE_GIT_SHA \
+    && python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir /app \
+    && python -m pip install --no-cache-dir -r /app/services/decision-api/requirements.txt
+
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin vortex \
+    && chown -R 10001:10001 /app
+USER 10001
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VORTEX_RUNTIME_MODE=SHADOW_REFERENCE \
+    VORTEX_REQUIRE_EXACT_SOURCE=true
+
+EXPOSE 8081
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=3).read()" || exit 1
+
+CMD ["gunicorn","--chdir","/app/services/decision-api","--workers","2","--threads","4","--bind","0.0.0.0:8081","--timeout","60","--graceful-timeout","30","--access-logfile","-","--error-logfile","-","app:app"]
