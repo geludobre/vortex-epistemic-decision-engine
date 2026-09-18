@@ -12,6 +12,10 @@ from vortex.decision.reference_engine import (
     EvidenceItem,
     ReferenceDecisionEngine,
 )
+from vortex.decision.seos_adapter import (
+    AdoDiagnosticDecisionAdapter,
+    DiagnosticDecisionError,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_MODE = "SHADOW_REFERENCE"
@@ -33,6 +37,7 @@ RESPONSE_VALIDATOR = Draft202012Validator(
     _load_json(RESPONSE_SCHEMA_PATH), format_checker=FormatChecker()
 )
 ENGINE = ReferenceDecisionEngine()
+DIAGNOSTIC_ADAPTER = AdoDiagnosticDecisionAdapter()
 
 
 def _truthy(name: str, default: bool = False) -> bool:
@@ -149,11 +154,63 @@ def readyz():
                 "mode": RUNTIME_MODE,
                 "source_git_sha": sha,
                 "execution_authority": False,
+                "ado_diagnostic_action_enabled": _truthy(
+                    "VORTEX_ENABLE_ADO_DIAGNOSTIC_ACTION", default=False
+                ),
             }
         )
     except Exception as exc:
         return jsonify({"status": "not_ready", "reason": str(exc), "mode": RUNTIME_MODE}), 503
 
+
+
+
+@app.post("/v1/decision/ado-diagnostic")
+def ado_diagnostic():
+    if not _truthy("VORTEX_ENABLE_ADO_DIAGNOSTIC_ACTION", default=False):
+        return jsonify(
+            {
+                "error": "DIAGNOSTIC_OPERATOR_DISABLED",
+                "detail": "ADO diagnostic action recommendation is disabled",
+            }
+        ), 503
+    if not request.is_json:
+        return jsonify(
+            {"error": "UNSUPPORTED_MEDIA_TYPE", "detail": "application/json required"}
+        ), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(
+            {"error": "MALFORMED_REQUEST", "detail": "JSON object required"}
+        ), 400
+    errors = _schema_errors(REQUEST_VALIDATOR, payload)
+    if errors:
+        return jsonify({"error": "REQUEST_CONTRACT_REJECT", "details": errors}), 400
+    try:
+        model = _request_model(payload)
+        reference_result = ENGINE.evaluate(model)
+        artifact = DIAGNOSTIC_ADAPTER.build(
+            request=model,
+            reference_result=reference_result,
+        )
+        if artifact["execution_authority"] is not False:
+            raise RuntimeError(
+                "CONSTITUTION_REJECT: Vortex diagnostic adapter gained execution authority"
+            )
+        return jsonify(artifact)
+    except DiagnosticDecisionError as exc:
+        return jsonify(
+            {"error": "DIAGNOSTIC_ACTION_REJECT", "detail": str(exc)}
+        ), 409
+    except ValueError as exc:
+        return jsonify(
+            {"error": "REQUEST_SEMANTIC_REJECT", "detail": str(exc)}
+        ), 400
+    except Exception as exc:
+        app.logger.exception("Vortex ADO diagnostic decision failed closed")
+        return jsonify(
+            {"error": "VORTEX_FAIL_CLOSED", "detail": str(exc)}
+        ), 500
 
 @app.post("/v1/decision/evaluate")
 def evaluate():
