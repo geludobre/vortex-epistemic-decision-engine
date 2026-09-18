@@ -36,7 +36,7 @@ jobs:
 
       - name: Compile runtime boundary
         run: |
-          python -m py_compile vortex/decision/reference_engine.py
+          python -m py_compile vortex/decision/reference_engine.py vortex/decision/seos_adapter.py
           python -m py_compile services/decision-api/app.py
 
       - name: Run reference core and service contract tests
