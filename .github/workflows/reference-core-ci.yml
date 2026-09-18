@@ -23,8 +23,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install test dependencies
-        run: python -m pip install -e '.[test]'
+      - name: Install test and decision-service dependencies
+        run: |
+          python -m pip install -e '.[test]'
+          python -m pip install -r services/decision-api/requirements.txt
       - name: Compile reference core
         run: python -m py_compile vortex/decision/reference_engine.py vortex/decision/seos_adapter.py
       - name: Run unit and falsification tests
