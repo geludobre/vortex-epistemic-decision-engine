@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SEOS Common Contract Definitions v1",
+  "$defs": {
+    "ArtifactId": {"type":"string","minLength":1,"maxLength":256,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
+    "Hex64": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "Timestamp": {"type":"string","format":"date-time"},
+    "NullableTimestamp": {"oneOf":[{"type":"string","format":"date-time"},{"type":"null"}]},
+    "Extensions": {"type":"object","additionalProperties":true},
+    "ArtifactRef": {
+      "type":"object","additionalProperties":false,"required":["artifact_id","artifact_hash"],
+      "properties":{
+        "artifact_id":{"$ref":"#/$defs/ArtifactId"},
+        "artifact_hash":{"$ref":"#/$defs/Hex64"},
+        "schema_version":{"type":"string","minLength":1},
+        "uri":{"type":"string","format":"uri"},
+        "extensions":{"$ref":"#/$defs/Extensions"}
+      }
+    },
+    "ProofRef": {
+      "type":"object","additionalProperties":false,"required":["assurance_level","subject_hash","availability_state"],
+      "properties":{
+        "assurance_level":{"enum":["NONE","HASH_ONLY","FBX_FINALIZED","EXTERNAL_ANCHORED"]},
+        "proof_system":{"type":"string","minLength":1},
+        "proof_id":{"type":"string","minLength":1},
+        "subject_hash":{"$ref":"#/$defs/Hex64"},
+        "anchor_id":{"type":"string","minLength":1},
+        "chain_id":{"type":"string","minLength":1},
+        "transaction_id":{"type":"string","minLength":1},
+        "block_height":{"type":"integer","minimum":0},
+        "block_hash":{"$ref":"#/$defs/Hex64"},
+        "finality_certificate_ref":{"type":"string","minLength":1},
+        "finality_certificate_hash":{"$ref":"#/$defs/Hex64"},
+        "validator_snapshot_hash":{"$ref":"#/$defs/Hex64"},
+        "finalized_at":{"$ref":"#/$defs/NullableTimestamp"},
+        "verifier_uri":{"type":"string","format":"uri"},
+        "external_anchor_ref":{"type":"string","minLength":1},
+        "availability_state":{"enum":["AVAILABLE","PENDING","UNAVAILABLE","UNKNOWN"]},
+        "extensions":{"$ref":"#/$defs/Extensions"}
+      }
+    },
+    "Subject": {
+      "type":"object","additionalProperties":false,"required":["subject_type","subject_id"],
+      "properties":{
+        "subject_type":{"type":"string","minLength":1},
+        "subject_id":{"type":"string","minLength":1},
+        "ticker":{"type":"string","minLength":1},
+        "country":{"type":"string","minLength":2,"maxLength":3},
+        "framework":{"type":"string","minLength":1},
+        "tenant_id":{"type":"string","minLength":1},
+        "extensions":{"$ref":"#/$defs/Extensions"}
+      }
+    }
+  }
+}
