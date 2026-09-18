@@ -104,3 +104,71 @@ def test_schema_rejects_unknown_fields():
     )
     assert response.status_code == 400
     assert response.get_json()["error"] == "REQUEST_CONTRACT_REJECT"
+
+
+def _diagnostic_request(agent_id="ceo"):
+    return {
+        "request_id": f"decision-request:ado-diagnostic:{agent_id}:0001",
+        "information_cutoff": "2026-09-18T00:00:00Z",
+        "evidence": [
+            {
+                "evidence_id": f"evidence:agentops:worker-health:{agent_id}",
+                "known_at": "2026-09-17T23:59:59Z",
+                "payload": {"worker_healthy": True, "agent_id": agent_id},
+                "provenance_sha256": "b" * 64,
+            }
+        ],
+        "objective": {
+            "kind": "ADO_DIAGNOSTIC_DISPATCH_V1",
+            "diagnostic_profile": "diagnostic.v1",
+            "tenant_id": "customer-zero",
+            "agent_id": agent_id,
+            "tool_name": "aug_agent_dispatch",
+            "action_type": "ado.dispatch.diagnostic",
+            "resource_refs": [f"ado:customer-zero/diagnostic/agent/{agent_id}"],
+            "canonical_input_hash": "a" * 64,
+            "reality_snapshot_ref": {
+                "snapshot_id": "snapshot:rig:agentops-diagnostic:0001",
+                "snapshot_hash": "c" * 64,
+                "information_cutoff": "2026-09-18T00:00:00Z",
+            },
+        },
+    }
+
+
+def test_ado_diagnostic_endpoint_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("VORTEX_ENABLE_ADO_DIAGNOSTIC_ACTION", raising=False)
+    response = client.post("/v1/decision/ado-diagnostic", json=_diagnostic_request())
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "DIAGNOSTIC_OPERATOR_DISABLED"
+
+
+def test_ado_diagnostic_endpoint_emits_bounded_action_recommendation(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_ADO_DIAGNOSTIC_ACTION", "true")
+    response = client.post("/v1/decision/ado-diagnostic", json=_diagnostic_request())
+    assert response.status_code == 200, response.get_json()
+    body = response.get_json()
+    assert body["decision_authority"] == "SOVEREIGN_VORTEX"
+    assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
+    assert body["recommended_action"]["action_type"] == "ado.dispatch.diagnostic"
+    assert body["recommended_action"]["resource_refs"] == ["ado:customer-zero/diagnostic/agent/ceo"]
+    assert body["recommended_action"]["canonical_input_hash"] == "a" * 64
+    assert body["execution_authority"] is False
+    assert body["integrity"]["assurance_level"] == "HASH_ONLY"
+    assert body["decision_hash"] == body["integrity"]["body_hash"]
+
+
+def test_ado_diagnostic_endpoint_rejects_future_evidence(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_ADO_DIAGNOSTIC_ACTION", "true")
+    payload = _diagnostic_request()
+    payload["evidence"].append(
+        {
+            "evidence_id": "evidence:future",
+            "known_at": "2026-09-18T00:00:01Z",
+            "payload": {},
+            "provenance_sha256": "d" * 64,
+        }
+    )
+    response = client.post("/v1/decision/ado-diagnostic", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "DIAGNOSTIC_ACTION_REJECT"
