@@ -124,8 +124,8 @@ def _diagnostic_request(agent_id="ceo"):
             "tenant_id": "customer-zero",
             "agent_id": agent_id,
             "tool_name": "aug_agent_dispatch",
-            "action_type": "ado.dispatch",
-            "resource_refs": [f"agent:{agent_id}"],
+            "action_type": "ado.dispatch.diagnostic",
+            "resource_refs": [f"ado:customer-zero/diagnostic/agent/{agent_id}"],
             "canonical_input_hash": "a" * 64,
             "reality_snapshot_ref": {
                 "snapshot_id": "snapshot:rig:agentops-diagnostic:0001",
@@ -151,7 +151,7 @@ def test_ado_diagnostic_endpoint_emits_bounded_action_recommendation(monkeypatch
     assert body["decision_authority"] == "SOVEREIGN_VORTEX"
     assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
     assert body["recommended_action"]["action_type"] == "ado.dispatch"
-    assert body["recommended_action"]["resource_refs"] == ["agent:ceo"]
+    assert body["recommended_action"]["resource_refs"] == ["ado:customer-zero/diagnostic/agent/ceo"]
     assert body["recommended_action"]["canonical_input_hash"] == "a" * 64
     assert body["execution_authority"] is False
     assert body["integrity"]["assurance_level"] == "HASH_ONLY"
