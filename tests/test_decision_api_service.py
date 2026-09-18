@@ -4,6 +4,8 @@ import importlib.util
 import os
 from pathlib import Path
 
+from vortex.decision.seos_adapter import recompute_reality_snapshot_hash
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "services" / "decision-api" / "app.py"
 
@@ -106,6 +108,49 @@ def test_schema_rejects_unknown_fields():
     assert response.get_json()["error"] == "REQUEST_CONTRACT_REJECT"
 
 
+def _diagnostic_snapshot(agent_id="ceo"):
+    evidence_id = f"evidence:agentops:worker-health:{agent_id}"
+    value = {
+        "schema_version": "1.0.0",
+        "snapshot_id": "snapshot:rig:placeholder",
+        "reality_authority": "RIG",
+        "information_cutoff": "2026-09-18T00:00:00Z",
+        "captured_at": "2026-09-18T00:00:01Z",
+        "subject_scope": {
+            "entity_ids": [agent_id],
+            "entity_types": ["agent"],
+            "providers": ["agentops_customerzero_diagnostic"],
+            "source_classes": ["provider_observation_staging"],
+            "extensions": {},
+        },
+        "completeness_state": "complete",
+        "temporal_policy_version": "known-at-v1",
+        "evidence_refs": [
+            {
+                "evidence_id": evidence_id,
+                "payload_hash": "b" * 64,
+                "known_at": "2026-09-17T23:59:59Z",
+                "temporal_assurance": "DERIVED_OBSERVED_INGESTED",
+                "source_id": "11111111-1111-4111-8111-111111111111",
+                "provenance_ref": "rig_provider_observation_staging:diagnostic:1",
+                "extensions": {},
+            }
+        ],
+        "prediction_refs": [],
+        "feature_snapshot_refs": [],
+        "source_state_refs": [],
+        "excluded_refs": [],
+        "degraded_sources": [],
+        "snapshot_hash": "0" * 64,
+        "proof_ref": None,
+        "extensions": {},
+    }
+    digest = recompute_reality_snapshot_hash(value)
+    value["snapshot_hash"] = digest
+    value["snapshot_id"] = f"snapshot:rig:{digest}"
+    return value
+
+
 def _diagnostic_request(agent_id="ceo"):
     return {
         "request_id": f"decision-request:ado-diagnostic:{agent_id}:0001",
@@ -127,11 +172,7 @@ def _diagnostic_request(agent_id="ceo"):
             "action_type": "ado.dispatch.diagnostic",
             "resource_refs": [f"ado:customer-zero/diagnostic/agent/{agent_id}"],
             "canonical_input_hash": "a" * 64,
-            "reality_snapshot_ref": {
-                "snapshot_id": "snapshot:rig:agentops-diagnostic:0001",
-                "snapshot_hash": "c" * 64,
-                "information_cutoff": "2026-09-18T00:00:00Z",
-            },
+            "reality_snapshot": _diagnostic_snapshot(agent_id),
         },
     }
 
@@ -156,6 +197,17 @@ def test_ado_diagnostic_endpoint_emits_bounded_action_recommendation(monkeypatch
     assert body["execution_authority"] is False
     assert body["integrity"]["assurance_level"] == "HASH_ONLY"
     assert body["decision_hash"] == body["integrity"]["body_hash"]
+
+
+def test_ado_diagnostic_endpoint_rejects_snapshot_tampering(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_ADO_DIAGNOSTIC_ACTION", "true")
+    payload = _diagnostic_request()
+    payload["objective"]["reality_snapshot"]["evidence_refs"][0]["payload_hash"] = "c" * 64
+    response = client.post("/v1/decision/ado-diagnostic", json=payload)
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body["error"] == "DIAGNOSTIC_ACTION_REJECT"
+    assert "snapshot_hash does not match" in body["detail"]
 
 
 def test_ado_diagnostic_endpoint_rejects_future_evidence(monkeypatch):

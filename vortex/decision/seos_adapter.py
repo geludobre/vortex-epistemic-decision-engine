@@ -58,16 +58,35 @@ def recompute_decision_hash(value: Mapping[str, Any]) -> str:
     return _sha256(_canonical_json(_decision_hash_material(value)))
 
 
+def _reality_snapshot_hash_material(value: Mapping[str, Any]) -> dict[str, Any]:
+    body = copy.deepcopy(dict(value))
+    body.pop("snapshot_id", None)
+    body.pop("captured_at", None)
+    body.pop("snapshot_hash", None)
+    body.pop("proof_ref", None)
+    return body
+
+
+def recompute_reality_snapshot_hash(value: Mapping[str, Any]) -> str:
+    return _sha256(_canonical_json(_reality_snapshot_hash_material(value)))
+
+
 def _load_schema(name: str) -> dict[str, Any]:
     return json.loads((CONTRACT_ROOT / name).read_text(encoding="utf-8"))
 
 
 _COMMON_SCHEMA = _load_schema("common.schema.json")
+_SCHEMA_REGISTRY = Registry().with_resource(
+    "common.schema.json", Resource.from_contents(_COMMON_SCHEMA)
+)
 _DECISION_VALIDATOR = Draft202012Validator(
     _load_schema("decision-artifact.schema.json"),
-    registry=Registry().with_resource(
-        "common.schema.json", Resource.from_contents(_COMMON_SCHEMA)
-    ),
+    registry=_SCHEMA_REGISTRY,
+    format_checker=FormatChecker(),
+)
+_REALITY_SNAPSHOT_VALIDATOR = Draft202012Validator(
+    _load_schema("reality-snapshot.schema.json"),
+    registry=_SCHEMA_REGISTRY,
     format_checker=FormatChecker(),
 )
 
@@ -80,6 +99,48 @@ def _validate_decision(value: Mapping[str, Any]) -> None:
             for error in errors[:8]
         )
         raise DiagnosticDecisionError("SEOS_DECISION_CONTRACT_REJECT: " + detail)
+
+
+def _validated_reality_snapshot(
+    value: Any,
+    *,
+    information_cutoff: str,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise DiagnosticDecisionError(
+            "DIAGNOSTIC_OBJECTIVE_REJECT: reality_snapshot must be an object"
+        )
+    snapshot = copy.deepcopy(dict(value))
+    errors = sorted(
+        _REALITY_SNAPSHOT_VALIDATOR.iter_errors(snapshot),
+        key=lambda e: list(e.path),
+    )
+    if errors:
+        detail = "; ".join(
+            f"{'/'.join(str(p) for p in error.path) or '<root>'}: {error.message}"
+            for error in errors[:8]
+        )
+        raise DiagnosticDecisionError(
+            "RIG_REALITY_SNAPSHOT_CONTRACT_REJECT: " + detail
+        )
+    if snapshot["completeness_state"] != "complete":
+        raise DiagnosticDecisionError(
+            "RIG_REALITY_SNAPSHOT_REJECT: completeness_state must be complete"
+        )
+    if snapshot["information_cutoff"] != information_cutoff:
+        raise DiagnosticDecisionError(
+            "RIG_REALITY_SNAPSHOT_REJECT: snapshot cutoff must equal decision cutoff"
+        )
+    expected_hash = recompute_reality_snapshot_hash(snapshot)
+    if snapshot["snapshot_hash"] != expected_hash:
+        raise DiagnosticDecisionError(
+            "RIG_REALITY_SNAPSHOT_REJECT: snapshot_hash does not match canonical content"
+        )
+    if snapshot["snapshot_id"] != f"snapshot:rig:{expected_hash}":
+        raise DiagnosticDecisionError(
+            "RIG_REALITY_SNAPSHOT_REJECT: snapshot_id is not content-addressed"
+        )
+    return snapshot
 
 
 def _required_str(value: Any, field: str) -> str:
@@ -110,7 +171,7 @@ def _objective(request: DecisionRequest) -> dict[str, Any]:
         "action_type",
         "resource_refs",
         "canonical_input_hash",
-        "reality_snapshot_ref",
+        "reality_snapshot",
     }
     if set(objective) != required:
         raise DiagnosticDecisionError(
@@ -136,28 +197,13 @@ def _objective(request: DecisionRequest) -> dict[str, Any]:
         )
     input_hash = _hex64(objective.get("canonical_input_hash"), "canonical_input_hash")
 
-    snapshot = objective.get("reality_snapshot_ref")
-    if not isinstance(snapshot, Mapping) or set(snapshot) != {
-        "snapshot_id",
-        "snapshot_hash",
-        "information_cutoff",
-    }:
-        raise DiagnosticDecisionError(
-            "DIAGNOSTIC_OBJECTIVE_REJECT: reality_snapshot_ref shape is invalid"
-        )
-    snapshot_id = _required_str(snapshot.get("snapshot_id"), "reality_snapshot_ref.snapshot_id")
-    if not snapshot_id.startswith("snapshot:rig:"):
-        raise DiagnosticDecisionError(
-            "DIAGNOSTIC_OBJECTIVE_REJECT: reality snapshot must be RIG-owned"
-        )
-    snapshot_hash = _hex64(snapshot.get("snapshot_hash"), "reality_snapshot_ref.snapshot_hash")
-    snapshot_cutoff = _required_str(
-        snapshot.get("information_cutoff"), "reality_snapshot_ref.information_cutoff"
+    snapshot = _validated_reality_snapshot(
+        objective.get("reality_snapshot"),
+        information_cutoff=request.information_cutoff,
     )
-    if snapshot_cutoff != request.information_cutoff:
-        raise DiagnosticDecisionError(
-            "DIAGNOSTIC_OBJECTIVE_REJECT: RIG snapshot cutoff must equal decision cutoff"
-        )
+    snapshot_evidence = {
+        item["evidence_id"]: item for item in snapshot["evidence_refs"]
+    }
 
     return {
         "tenant_id": tenant_id,
@@ -165,10 +211,11 @@ def _objective(request: DecisionRequest) -> dict[str, Any]:
         "resource_refs": [expected_resource],
         "canonical_input_hash": input_hash,
         "reality_snapshot_ref": {
-            "snapshot_id": snapshot_id,
-            "snapshot_hash": snapshot_hash,
-            "information_cutoff": snapshot_cutoff,
+            "snapshot_id": snapshot["snapshot_id"],
+            "snapshot_hash": snapshot["snapshot_hash"],
+            "information_cutoff": snapshot["information_cutoff"],
         },
+        "snapshot_evidence": snapshot_evidence,
     }
 
 
@@ -199,6 +246,35 @@ class AdoDiagnosticDecisionAdapter:
             raise DiagnosticDecisionError(
                 "DIAGNOSTIC_ACTION_REJECT: reference engine cutoff drift"
             )
+
+        request_evidence = {item.evidence_id: item for item in request.evidence}
+        snapshot_evidence = objective["snapshot_evidence"]
+        for evidence_id in reference_result.admitted_evidence_ids:
+            if evidence_id not in snapshot_evidence:
+                raise DiagnosticDecisionError(
+                    "RIG_EVIDENCE_BINDING_REJECT: admitted evidence is absent from RealitySnapshot"
+                )
+            item = request_evidence.get(evidence_id)
+            if item is None:
+                raise DiagnosticDecisionError(
+                    "RIG_EVIDENCE_BINDING_REJECT: admitted evidence is absent from request"
+                )
+            ref = snapshot_evidence[evidence_id]
+            if item.provenance_sha256 != ref["payload_hash"]:
+                raise DiagnosticDecisionError(
+                    "RIG_EVIDENCE_BINDING_REJECT: payload hash differs from RealitySnapshot"
+                )
+            try:
+                item_known = datetime.fromisoformat(item.known_at.replace("Z", "+00:00"))
+                ref_known = datetime.fromisoformat(ref["known_at"].replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise DiagnosticDecisionError(
+                    "RIG_EVIDENCE_BINDING_REJECT: invalid known_at timestamp"
+                ) from exc
+            if item_known != ref_known:
+                raise DiagnosticDecisionError(
+                    "RIG_EVIDENCE_BINDING_REJECT: known_at differs from RealitySnapshot"
+                )
 
         created = self.now().astimezone(timezone.utc)
         created_at = created.isoformat(timespec="seconds").replace("+00:00", "Z")
