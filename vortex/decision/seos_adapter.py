@@ -21,7 +21,7 @@ POLICY_VERSION = "vortex-ado-diagnostic-policy-v1"
 DIAGNOSTIC_OBJECTIVE_KIND = "ADO_DIAGNOSTIC_DISPATCH_V1"
 DIAGNOSTIC_PROFILE = "diagnostic.v1"
 DIAGNOSTIC_TOOL = "aug_agent_dispatch"
-DIAGNOSTIC_ACTION_TYPE = "ado.dispatch"
+DIAGNOSTIC_ACTION_TYPE = "ado.dispatch.diagnostic"
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_ROOT = ROOT / "schemas" / "seos" / "v1"
@@ -129,7 +129,7 @@ def _objective(request: DecisionRequest) -> dict[str, Any]:
     tenant_id = _required_str(objective.get("tenant_id"), "tenant_id")
     agent_id = _required_str(objective.get("agent_id"), "agent_id")
     resources = objective.get("resource_refs")
-    expected_resource = f"agent:{agent_id}"
+    expected_resource = f"ado:{tenant_id}/diagnostic/agent/{agent_id}"
     if resources != [expected_resource]:
         raise DiagnosticDecisionError(
             "DIAGNOSTIC_OBJECTIVE_REJECT: resource_refs must bind the exact agent"
@@ -264,11 +264,7 @@ class AdoDiagnosticDecisionAdapter:
                     "Synthetic diagnostic recommendation; uncertainty values are "
                     "engineering diagnostics, not calibrated business probabilities."
                 ),
-                "dimensions": {
-                    "operator": 0.0,
-                    "decision": 0.0,
-                    "unknown": 0.0,
-                },
+                "dimensions": {},
                 "extensions": {},
             },
             "engine": {
