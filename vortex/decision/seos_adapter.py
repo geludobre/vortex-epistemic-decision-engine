@@ -124,7 +124,7 @@ def _objective(request: DecisionRequest) -> dict[str, Any]:
     if objective.get("tool_name") != DIAGNOSTIC_TOOL:
         raise DiagnosticDecisionError("DIAGNOSTIC_OBJECTIVE_REJECT: tool_name must be aug_agent_dispatch")
     if objective.get("action_type") != DIAGNOSTIC_ACTION_TYPE:
-        raise DiagnosticDecisionError("DIAGNOSTIC_OBJECTIVE_REJECT: action_type must be ado.dispatch")
+        raise DiagnosticDecisionError("DIAGNOSTIC_OBJECTIVE_REJECT: action_type must be ado.dispatch.diagnostic")
 
     tenant_id = _required_str(objective.get("tenant_id"), "tenant_id")
     agent_id = _required_str(objective.get("agent_id"), "agent_id")
