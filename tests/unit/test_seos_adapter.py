@@ -34,8 +34,8 @@ def _request(*, agent_id="ceo", cutoff="2026-09-18T00:00:00Z", task_hash="a" * 6
             "tenant_id": "customer-zero",
             "agent_id": agent_id,
             "tool_name": "aug_agent_dispatch",
-            "action_type": "ado.dispatch",
-            "resource_refs": [f"agent:{agent_id}"],
+            "action_type": "ado.dispatch.diagnostic",
+            "resource_refs": [f"ado:customer-zero/diagnostic/agent/{agent_id}"],
             "canonical_input_hash": task_hash,
             "reality_snapshot_ref": {
                 "snapshot_id": "snapshot:rig:agentops-diagnostic:0001",
@@ -64,8 +64,8 @@ def test_builds_schema_valid_action_recommendation_without_execution_authority()
     assert artifact["subject"]["tenant_id"] == "customer-zero"
     assert artifact["subject"]["subject_id"] == "ceo"
     assert artifact["recommended_action"] == {
-        "action_type": "ado.dispatch",
-        "resource_refs": ["agent:ceo"],
+        "action_type": "ado.dispatch.diagnostic",
+        "resource_refs": ["ado:customer-zero/diagnostic/agent/ceo"],
         "canonical_input_hash": "a" * 64,
         "extensions": {
             "mcp_tool": "aug_agent_dispatch",
@@ -79,7 +79,7 @@ def test_builds_schema_valid_action_recommendation_without_execution_authority()
 
 def test_rejects_resource_scope_that_does_not_bind_exact_agent():
     request = _request()
-    request.objective["resource_refs"] = ["agent:cto"]
+    request.objective["resource_refs"] = ["ado:customer-zero/diagnostic/agent/cto"]
     result = ReferenceDecisionEngine().evaluate(request)
     with pytest.raises(DiagnosticDecisionError, match="resource_refs must bind the exact agent"):
         _adapter().build(request=request, reference_result=result)
