@@ -150,7 +150,7 @@ def test_ado_diagnostic_endpoint_emits_bounded_action_recommendation(monkeypatch
     body = response.get_json()
     assert body["decision_authority"] == "SOVEREIGN_VORTEX"
     assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
-    assert body["recommended_action"]["action_type"] == "ado.dispatch"
+    assert body["recommended_action"]["action_type"] == "ado.dispatch.diagnostic"
     assert body["recommended_action"]["resource_refs"] == ["ado:customer-zero/diagnostic/agent/ceo"]
     assert body["recommended_action"]["canonical_input_hash"] == "a" * 64
     assert body["execution_authority"] is False
