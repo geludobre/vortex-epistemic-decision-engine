@@ -1,0 +1,64 @@
+name: Vortex ADO HITL Cognitive Action Gate
+
+on:
+  push:
+    branches:
+      - 'hardening/vortex-ado-hitl-cognitive-20260919'
+
+permissions:
+  contents: read
+
+jobs:
+  hitl-cognitive-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact production ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e 'ed53ef358afc8b006962a5933e0c24ab9894dd30^{commit}'
+          git merge-base --is-ancestor ed53ef358afc8b006962a5933e0c24ab9894dd30 "${GITHUB_SHA}"
+
+      - name: Install runtime test dependencies
+        run: |
+          python -m pip install -e '.[test]'
+          python -m pip install -r services/decision-api/requirements.txt
+
+      - name: Compile HITL cognitive runtime boundary
+        run: |
+          python -m py_compile \
+            vortex/decision/reference_engine.py \
+            vortex/decision/seos_adapter.py \
+            vortex/decision/cognitive_adapter.py \
+            vortex/decision/hitl_cognitive_adapter.py \
+            services/decision-api/app.py
+
+      - name: Run full Vortex unit and falsification suite
+        run: python -m pytest -q
+
+      - name: Verify HITL boundary remains non-executing and scope-specific
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib
+          text=pathlib.Path("vortex/decision/hitl_cognitive_adapter.py").read_text()
+          assert 'HITL_OBJECTIVE_KIND = "ADO_HITL_COGNITIVE_DISPATCH_V1"' in text
+          assert 'COGNITIVE_ACTION_TYPE' in text
+          assert '/hitl/agent/' in text
+          assert '"execution_authority": False' in text
+          assert 'mandatory_human_review must be true' in text
+          assert 'cognitive_output_only' in text
+          assert 'human_approval_required' in text
+          print("VORTEX_HITL_COGNITIVE_NON_EXECUTING_BOUNDARY=PASS")
+          PY

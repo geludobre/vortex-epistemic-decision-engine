@@ -16,6 +16,10 @@ from vortex.decision.cognitive_adapter import (
     AdoCognitiveDecisionAdapter,
     CognitiveDecisionError,
 )
+from vortex.decision.hitl_cognitive_adapter import (
+    AdoHitlCognitiveDecisionAdapter,
+    HitlCognitiveDecisionError,
+)
 from vortex.decision.seos_adapter import (
     AdoDiagnosticDecisionAdapter,
     DiagnosticDecisionError,
@@ -43,6 +47,7 @@ RESPONSE_VALIDATOR = Draft202012Validator(
 ENGINE = ReferenceDecisionEngine()
 DIAGNOSTIC_ADAPTER = AdoDiagnosticDecisionAdapter()
 COGNITIVE_ADAPTER = AdoCognitiveDecisionAdapter()
+HITL_COGNITIVE_ADAPTER = AdoHitlCognitiveDecisionAdapter()
 
 
 def _truthy(name: str, default: bool = False) -> bool:
@@ -165,6 +170,9 @@ def readyz():
                 "ado_cognitive_action_enabled": _truthy(
                     "VORTEX_ENABLE_ADO_COGNITIVE_ACTION", default=False
                 ),
+                "ado_hitl_cognitive_action_enabled": _truthy(
+                    "VORTEX_ENABLE_ADO_HITL_COGNITIVE_ACTION", default=False
+                ),
             }
         )
     except Exception as exc:
@@ -172,6 +180,54 @@ def readyz():
 
 
 
+
+
+@app.post("/v1/decision/ado-hitl-cognitive")
+def ado_hitl_cognitive():
+    if not _truthy("VORTEX_ENABLE_ADO_HITL_COGNITIVE_ACTION", default=False):
+        return jsonify(
+            {
+                "error": "HITL_COGNITIVE_OPERATOR_DISABLED",
+                "detail": "ADO HITL cognitive action recommendation is disabled",
+            }
+        ), 503
+    if not request.is_json:
+        return jsonify(
+            {"error": "UNSUPPORTED_MEDIA_TYPE", "detail": "application/json required"}
+        ), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(
+            {"error": "MALFORMED_REQUEST", "detail": "JSON object required"}
+        ), 400
+    errors = _schema_errors(REQUEST_VALIDATOR, payload)
+    if errors:
+        return jsonify({"error": "REQUEST_CONTRACT_REJECT", "details": errors}), 400
+    try:
+        model = _request_model(payload)
+        reference_result = ENGINE.evaluate(model)
+        artifact = HITL_COGNITIVE_ADAPTER.build(
+            request=model,
+            reference_result=reference_result,
+        )
+        if artifact["execution_authority"] is not False:
+            raise RuntimeError(
+                "CONSTITUTION_REJECT: Vortex HITL cognitive adapter gained execution authority"
+            )
+        return jsonify(artifact)
+    except HitlCognitiveDecisionError as exc:
+        return jsonify(
+            {"error": "HITL_COGNITIVE_ACTION_REJECT", "detail": str(exc)}
+        ), 409
+    except ValueError as exc:
+        return jsonify(
+            {"error": "REQUEST_SEMANTIC_REJECT", "detail": str(exc)}
+        ), 400
+    except Exception as exc:
+        app.logger.exception("Vortex ADO HITL cognitive decision failed closed")
+        return jsonify(
+            {"error": "VORTEX_FAIL_CLOSED", "detail": str(exc)}
+        ), 500
 
 
 @app.post("/v1/decision/ado-cognitive")
