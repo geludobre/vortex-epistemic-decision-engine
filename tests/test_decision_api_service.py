@@ -369,4 +369,68 @@ def test_ado_cognitive_endpoint_rejects_future_evidence(monkeypatch):
     assert response.get_json()["error"] == "COGNITIVE_ACTION_REJECT"
     assert "rejected/future evidence" in response.get_json()["detail"]
 
+def _hitl_cognitive_request(agent_id="ceo"):
+    payload = _cognitive_request(agent_id)
+    payload["request_id"] = f"decision-request:ado-hitl-cognitive:{agent_id}:0001"
+    payload["mandatory_human_review"] = True
+    payload["objective"]["kind"] = "ADO_HITL_COGNITIVE_DISPATCH_V1"
+    payload["objective"]["resource_refs"] = [
+        f"ado:customer-zero/hitl/agent/{agent_id}"
+    ]
+    return payload
+
+
+def test_ado_hitl_cognitive_endpoint_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("VORTEX_ENABLE_ADO_HITL_COGNITIVE_ACTION", raising=False)
+    response = client.post(
+        "/v1/decision/ado-hitl-cognitive",
+        json=_hitl_cognitive_request(),
+    )
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "HITL_COGNITIVE_OPERATOR_DISABLED"
+
+
+def test_ado_hitl_cognitive_endpoint_emits_nonexecuting_hitl_recommendation(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_ADO_HITL_COGNITIVE_ACTION", "true")
+    payload = _hitl_cognitive_request()
+    response = client.post("/v1/decision/ado-hitl-cognitive", json=payload)
+    assert response.status_code == 200, response.get_json()
+    body = response.get_json()
+    args = payload["objective"]["dispatch_arguments"]
+    assert body["decision_authority"] == "SOVEREIGN_VORTEX"
+    assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
+    assert body["recommended_action"]["action_type"] == "ado.dispatch"
+    assert body["recommended_action"]["resource_refs"] == [
+        "ado:customer-zero/hitl/agent/ceo"
+    ]
+    assert body["recommended_action"]["canonical_input_hash"] == canonical_action_input_hash(args)
+    assert body["recommended_action"]["extensions"]["cognitive_output_only"] is True
+    assert body["recommended_action"]["extensions"]["human_approval_required"] is True
+    assert body["execution_authority"] is False
+    assert body["subject"]["extensions"]["human_approval_required"] is True
+    assert body["decision_hash"] == body["integrity"]["body_hash"]
+
+
+def test_ado_hitl_cognitive_endpoint_requires_mandatory_human_review(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_ADO_HITL_COGNITIVE_ACTION", "true")
+    payload = _hitl_cognitive_request()
+    payload["mandatory_human_review"] = False
+    response = client.post("/v1/decision/ado-hitl-cognitive", json=payload)
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body["error"] == "HITL_COGNITIVE_ACTION_REJECT"
+    assert "mandatory_human_review must be true" in body["detail"]
+
+
+def test_ado_hitl_cognitive_endpoint_rejects_cognitive_scope_substitution(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_ADO_HITL_COGNITIVE_ACTION", "true")
+    payload = _hitl_cognitive_request()
+    payload["objective"]["resource_refs"] = [
+        "ado:customer-zero/cognitive/agent/ceo"
+    ]
+    response = client.post("/v1/decision/ado-hitl-cognitive", json=payload)
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body["error"] == "HITL_COGNITIVE_ACTION_REJECT"
+    assert "exact HITL agent" in body["detail"]
 
