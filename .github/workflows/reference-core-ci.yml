@@ -2,7 +2,6 @@ name: Vortex Reference Core CI
 
 on:
   pull_request:
-    branches: [main]
     paths:
       - 'vortex/**'
       - 'schemas/**'
@@ -23,7 +22,7 @@ jobs:
           python-version: '3.12'
       - name: Install test dependencies
         run: python -m pip install -e '.[test]'
-      - name: Compile reference core
-        run: python -m py_compile vortex/decision/reference_engine.py
+      - name: Compile public Vortex package
+        run: python -m compileall -q vortex
       - name: Run unit and falsification tests
         run: python -m pytest -q
