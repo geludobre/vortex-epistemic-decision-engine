@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 
 from vortex.decision.cognitive_adapter import canonical_action_input_hash
+from vortex.decision.careeros_invitation_canary_adapter import (
+    canonical_action_input_hash as canonical_careeros_input_hash,
+)
 from vortex.decision.seos_adapter import recompute_reality_snapshot_hash
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -434,3 +437,185 @@ def test_ado_hitl_cognitive_endpoint_rejects_cognitive_scope_substitution(monkey
     assert body["error"] == "HITL_COGNITIVE_ACTION_REJECT"
     assert "exact HITL agent" in body["detail"]
 
+
+
+def _careeros_invitation_canary_snapshot(workspace_id="ws_Y9UBVExJc97l"):
+    evidence_id = f"evidence:careeros:invitation-canary:{workspace_id}"
+    value = {
+        "schema_version": "1.0.0",
+        "snapshot_id": "snapshot:rig:placeholder",
+        "reality_authority": "RIG",
+        "information_cutoff": "2026-09-20T03:00:00Z",
+        "captured_at": "2026-09-20T03:00:01Z",
+        "subject_scope": {
+            "entity_ids": [workspace_id],
+            "entity_types": ["workspace"],
+            "providers": ["careeros_customerzero_canary_readiness"],
+            "source_classes": ["provider_observation_staging"],
+            "extensions": {},
+        },
+        "completeness_state": "complete",
+        "temporal_policy_version": "known-at-v1",
+        "evidence_refs": [
+            {
+                "evidence_id": evidence_id,
+                "payload_hash": "f" * 64,
+                "known_at": "2026-09-20T02:59:59Z",
+                "temporal_assurance": "DERIVED_OBSERVED_INGESTED",
+                "source_id": "33333333-3333-4333-8333-333333333333",
+                "provenance_ref": "rig_provider_observation_staging:careeros-canary:1",
+                "extensions": {},
+            }
+        ],
+        "prediction_refs": [],
+        "feature_snapshot_refs": [],
+        "source_state_refs": [],
+        "excluded_refs": [],
+        "degraded_sources": [],
+        "snapshot_hash": "0" * 64,
+        "proof_ref": None,
+        "extensions": {},
+    }
+    digest = recompute_reality_snapshot_hash(value)
+    value["snapshot_hash"] = digest
+    value["snapshot_id"] = f"snapshot:rig:{digest}"
+    return value
+
+
+def _careeros_invitation_canary_request(workspace_id="ws_Y9UBVExJc97l"):
+    resource = f"careeros:customer-zero/workspace/{workspace_id}/invitation"
+    arguments = {
+        "action": "career.invitation.create_and_enqueue",
+        "resource_ref": resource,
+        "sponsor_user_id": "39844004",
+        "recipient_email": "customer-zero-test@example.invalid",
+        "role": "member",
+    }
+    return {
+        "request_id": "decision-request:careeros-invitation-canary:0001",
+        "information_cutoff": "2026-09-20T03:00:00Z",
+        "mandatory_human_review": True,
+        "evidence": [
+            {
+                "evidence_id": f"evidence:careeros:invitation-canary:{workspace_id}",
+                "known_at": "2026-09-20T02:59:59Z",
+                "payload": {
+                    "workspace_exists": True,
+                    "sponsor_is_owner_or_admin": True,
+                    "active_canary_invitation_count": 0,
+                },
+                "provenance_sha256": "f" * 64,
+            }
+        ],
+        "objective": {
+            "kind": "CAREEROS_INVITATION_CANARY_V1",
+            "tenant_id": "customer-zero",
+            "workspace_id": workspace_id,
+            "tool_name": "aug_business_effect",
+            "action_type": "career.invitation.create_and_enqueue",
+            "resource_refs": [resource],
+            "arguments": arguments,
+            "reality_snapshot": _careeros_invitation_canary_snapshot(workspace_id),
+        },
+    }
+
+
+def test_careeros_invitation_canary_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", raising=False)
+    response = client.post(
+        "/v1/decision/careeros-invitation-canary",
+        json=_careeros_invitation_canary_request(),
+    )
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_DISABLED"
+
+
+def test_careeros_invitation_canary_emits_exact_nonexecuting_hitl_recommendation(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 200, response.get_json()
+    body = response.get_json()
+    args = payload["objective"]["arguments"]
+    resource = "careeros:customer-zero/workspace/ws_Y9UBVExJc97l/invitation"
+    assert body["decision_authority"] == "SOVEREIGN_VORTEX"
+    assert body["domain"] == "careeros_invitation_canary"
+    assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
+    assert body["recommended_action"]["action_type"] == "career.invitation.create_and_enqueue"
+    assert body["recommended_action"]["resource_refs"] == [resource]
+    assert body["recommended_action"]["canonical_input_hash"] == canonical_careeros_input_hash(args)
+    assert body["recommended_action"]["extensions"]["mcp_tool"] == "aug_business_effect"
+    assert body["recommended_action"]["extensions"]["canary_only"] is True
+    assert body["recommended_action"]["extensions"]["human_approval_required"] is True
+    assert body["execution_authority"] is False
+    assert body["subject"]["extensions"]["recipient_class"] == "example.invalid"
+    assert body["decision_hash"] == body["integrity"]["body_hash"]
+
+
+def test_careeros_invitation_canary_rejects_real_recipient(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    payload["objective"]["arguments"]["recipient_email"] = "person@example.com"
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
+    assert "reserved non-deliverable canary address" in response.get_json()["detail"]
+
+
+def test_careeros_invitation_canary_rejects_privileged_role(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    payload["objective"]["arguments"]["role"] = "admin"
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
+    assert "role must be exactly member" in response.get_json()["detail"]
+
+
+def test_careeros_invitation_canary_requires_human_review(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    payload["mandatory_human_review"] = False
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
+    assert "mandatory_human_review must be true" in response.get_json()["detail"]
+
+
+def test_careeros_invitation_canary_rejects_scope_substitution(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    payload["objective"]["resource_refs"] = [
+        "careeros:customer-zero/workspace/other-workspace/invitation"
+    ]
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
+    assert "exact workspace invitation surface" in response.get_json()["detail"]
+
+
+def test_careeros_invitation_canary_rejects_snapshot_tampering(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    payload["objective"]["reality_snapshot"]["evidence_refs"][0]["payload_hash"] = "e" * 64
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
+    assert "snapshot_hash does not match" in response.get_json()["detail"]
+
+
+def test_careeros_invitation_canary_rejects_future_evidence(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", "true")
+    payload = _careeros_invitation_canary_request()
+    payload["evidence"].append(
+        {
+            "evidence_id": "evidence:future",
+            "known_at": "2026-09-20T03:00:01Z",
+            "payload": {},
+            "provenance_sha256": "d" * 64,
+        }
+    )
+    response = client.post("/v1/decision/careeros-invitation-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
+    assert "rejected/future evidence" in response.get_json()["detail"]
