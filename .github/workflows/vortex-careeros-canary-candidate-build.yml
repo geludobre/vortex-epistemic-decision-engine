@@ -120,7 +120,8 @@ jobs:
           push_output="$(docker push "$remote")"
           printf '%s\n' "$push_output"
           digest="$(printf '%s\n' "$push_output" | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | tail -1)"
-          test "$(printf '%s' "$digest" | grep -Ec '^sha256:[0-9a-f]{64})" = "1"
+          test "${#digest}" -eq 71
+          test "${digest#sha256:}" != "$digest"
           echo "VORTEX_CANDIDATE_SOURCE_SHA=$SOURCE_SHA"
           echo "VORTEX_CANDIDATE_TREE_SHA=$SOURCE_TREE"
           echo "VORTEX_CANDIDATE_IMAGE_DIGEST=$digest"
