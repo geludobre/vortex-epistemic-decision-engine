@@ -117,13 +117,10 @@ jobs:
           set -euo pipefail
           remote="$ECR_REGISTRY/$ECR_REPOSITORY:$SOURCE_SHA"
           docker tag "vortex-runtime:$SOURCE_SHA" "$remote"
-          docker push "$remote"
-          digest="$(aws ecr describe-images \
-            --repository-name "$ECR_REPOSITORY" \
-            --image-ids imageTag="$SOURCE_SHA" \
-            --query 'imageDetails[0].imageDigest' \
-            --output text)"
-          test -n "$digest"
+          push_output="$(docker push "$remote")"
+          printf '%s\n' "$push_output"
+          digest="$(printf '%s\n' "$push_output" | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | tail -1)"
+          test "$(printf '%s' "$digest" | grep -Ec '^sha256:[0-9a-f]{64})" = "1"
           echo "VORTEX_CANDIDATE_SOURCE_SHA=$SOURCE_SHA"
           echo "VORTEX_CANDIDATE_TREE_SHA=$SOURCE_TREE"
           echo "VORTEX_CANDIDATE_IMAGE_DIGEST=$digest"
