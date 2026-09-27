@@ -1,0 +1,77 @@
+name: Vortex Commercial R4 No-Effect Candidate Build
+
+on:
+  pull_request:
+    branches:
+      - hardening/vortex-careeros-invitation-canary-20260920
+    paths:
+      - 'vortex/decision/commercial_r4_noeffect_canary_adapter.py'
+      - 'services/decision-api/app.py'
+      - 'tests/test_decision_api_service.py'
+      - 'Dockerfile.vortex'
+      - '.github/workflows/vortex-commercial-r4-noeffect-canary-gate.yml'
+      - '.github/workflows/vortex-commercial-r4-noeffect-candidate-build.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-central-1
+  AWS_ACCOUNT_ID: '592755832023'
+  ECR_REGISTRY: 592755832023.dkr.ecr.eu-central-1.amazonaws.com
+  ECR_REPOSITORY: finbridge/vortex-customerzero
+  AWS_ROLE_ARN: arn:aws:iam::592755832023:role/finbridge/customer-zero/FinBridgeVortexGithubActionsCustomerZeroRole
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Freeze exact source
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor b50cc9a0f8ad60ff42959ecce2e803da34775be2 "$SOURCE_SHA"
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+          echo "SOURCE_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install and test exact candidate
+        run: |
+          python -m pip install -e '.[test]'
+          python -m pip install -r services/decision-api/requirements.txt
+          python -m pytest -q
+      - name: Build exact-source image
+        run: |
+          docker build -f Dockerfile.vortex --build-arg SOURCE_GIT_SHA="$SOURCE_SHA" -t "vortex-commercial-r4:$SOURCE_SHA" .
+          ACTUAL="$(docker run --rm --entrypoint sh "vortex-commercial-r4:$SOURCE_SHA" -c 'cat /app/SOURCE_GIT_SHA')"
+          test "$ACTUAL" = "$SOURCE_SHA"
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: vortex-commercial-r4-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Verify AWS identity
+        run: test "$(aws sts get-caller-identity --query Account --output text)" = "$AWS_ACCOUNT_ID"
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Push immutable candidate
+        run: |
+          set -euo pipefail
+          TAG="commercial-r4-noeffect-$SOURCE_SHA"
+          REMOTE="$ECR_REGISTRY/$ECR_REPOSITORY:$TAG"
+          docker tag "vortex-commercial-r4:$SOURCE_SHA" "$REMOTE"
+          docker push "$REMOTE"
+          DIGEST="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)"
+          test -n "$DIGEST"
+          test "$DIGEST" != "None"
+          echo "VORTEX_COMMERCIAL_R4_CANDIDATE=PASS sha=$SOURCE_SHA tree=$SOURCE_TREE digest=$DIGEST"
+          echo "VORTEX_COMMERCIAL_R4_ECS_MUTATION=NONE"
