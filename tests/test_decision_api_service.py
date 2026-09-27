@@ -8,6 +8,10 @@ from vortex.decision.cognitive_adapter import canonical_action_input_hash
 from vortex.decision.careeros_invitation_canary_adapter import (
     canonical_action_input_hash as canonical_careeros_input_hash,
 )
+from vortex.decision.commercial_r4_noeffect_canary_adapter import (
+    canonical_action_input,
+    canonical_action_input_hash as canonical_commercial_input_hash,
+)
 from vortex.decision.seos_adapter import recompute_reality_snapshot_hash
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -619,3 +623,122 @@ def test_careeros_invitation_canary_rejects_future_evidence(monkeypatch):
     assert response.status_code == 409
     assert response.get_json()["error"] == "CAREEROS_INVITATION_CANARY_REJECT"
     assert "rejected/future evidence" in response.get_json()["detail"]
+
+
+def _commercial_r4_noeffect_snapshot():
+    evidence_id = "evidence:rig:commercial-r4-noeffect-readiness:20260927"
+    value = {
+        "schema_version": "1.0.0",
+        "snapshot_id": "snapshot:rig:placeholder",
+        "reality_authority": "RIG",
+        "information_cutoff": "2026-09-27T10:00:00Z",
+        "captured_at": "2026-09-27T10:00:01Z",
+        "subject_scope": {
+            "entity_ids": ["r4-noeffect-20260927"],
+            "entity_types": ["commercial_canary"],
+            "providers": ["rig_commercial_r4_readiness"],
+            "source_classes": ["governed_runtime_readiness"],
+            "extensions": {},
+        },
+        "completeness_state": "complete",
+        "temporal_policy_version": "known-at-v1",
+        "evidence_refs": [{
+            "evidence_id": evidence_id,
+            "payload_hash": "a" * 64,
+            "known_at": "2026-09-27T09:59:59Z",
+            "temporal_assurance": "DERIVED_OBSERVED_INGESTED",
+            "source_id": "44444444-4444-4444-8444-444444444444",
+            "provenance_ref": "rig:commercial-r4-noeffect-readiness:20260927",
+            "extensions": {"synthetic_payload": True, "provider_effect_forbidden": True},
+        }],
+        "prediction_refs": [],
+        "feature_snapshot_refs": [],
+        "source_state_refs": [],
+        "excluded_refs": [],
+        "degraded_sources": [],
+        "snapshot_hash": "0" * 64,
+        "proof_ref": None,
+        "extensions": {"canary_only": True},
+    }
+    digest = recompute_reality_snapshot_hash(value)
+    value["snapshot_hash"] = digest
+    value["snapshot_id"] = f"snapshot:rig:{digest}"
+    return value
+
+
+def _commercial_r4_noeffect_request():
+    return {
+        "request_id": "decision-request:commercial-r4-noeffect:20260927:0001",
+        "information_cutoff": "2026-09-27T10:00:00Z",
+        "mandatory_human_review": True,
+        "evidence": [{
+            "evidence_id": "evidence:rig:commercial-r4-noeffect-readiness:20260927",
+            "known_at": "2026-09-27T09:59:59Z",
+            "payload": {
+                "integration_canary_authorized": True,
+                "recipient_class": "example.invalid",
+                "provider_effect_forbidden": True,
+            },
+            "provenance_sha256": "a" * 64,
+        }],
+        "objective": {
+            "kind": "COMMERCIAL_R4_NOEFFECT_CANARY_V1",
+            "tenant_id": "customer-zero",
+            "tool_name": "aug_commercial_effect",
+            "action_type": "SEND_COMMERCIAL_EMAIL",
+            "resource_refs": [
+                "commercial:customer-zero/canary/r4-noeffect-20260927/event-1"
+            ],
+            "arguments": canonical_action_input(),
+            "reality_snapshot": _commercial_r4_noeffect_snapshot(),
+        },
+    }
+
+
+def test_commercial_r4_noeffect_canary_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", raising=False)
+    response = client.post(
+        "/v1/decision/commercial-r4-noeffect-canary",
+        json=_commercial_r4_noeffect_request(),
+    )
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "COMMERCIAL_R4_NOEFFECT_CANARY_DISABLED"
+
+
+def test_commercial_r4_noeffect_canary_emits_exact_nonexecuting_recommendation(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", "true")
+    request_payload = _commercial_r4_noeffect_request()
+    response = client.post("/v1/decision/commercial-r4-noeffect-canary", json=request_payload)
+    assert response.status_code == 200, response.get_json()
+    body = response.get_json()
+    args = canonical_action_input()
+    assert body["domain"] == "COMMERCIAL_REVENUE"
+    assert body["execution_authority"] is False
+    assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
+    assert body["recommended_action"]["action_type"] == "SEND_COMMERCIAL_EMAIL"
+    assert body["recommended_action"]["resource_refs"] == [
+        "commercial:customer-zero/canary/r4-noeffect-20260927/event-1"
+    ]
+    assert body["recommended_action"]["canonical_input_hash"] == canonical_commercial_input_hash(args)
+    assert args["payload"]["recipient"] == "buyer@example.invalid"
+    assert args["directProviderExecution"] is False
+    assert body["recommended_action"]["extensions"]["max_attempts"] == 1
+    assert body["recommended_action"]["extensions"]["human_approval_required"] is True
+
+
+def test_commercial_r4_noeffect_canary_rejects_recipient_substitution(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", "true")
+    payload = _commercial_r4_noeffect_request()
+    payload["objective"]["arguments"]["payload"]["recipient"] = "real@example.com"
+    response = client.post("/v1/decision/commercial-r4-noeffect-canary", json=payload)
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "COMMERCIAL_R4_NOEFFECT_CANARY_REJECT"
+
+
+def test_commercial_r4_noeffect_canary_requires_human_review(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", "true")
+    payload = _commercial_r4_noeffect_request()
+    payload["mandatory_human_review"] = False
+    response = client.post("/v1/decision/commercial-r4-noeffect-canary", json=payload)
+    assert response.status_code == 409
+    assert "mandatory_human_review" in response.get_json()["detail"]
