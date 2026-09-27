@@ -50,11 +50,11 @@ jobs:
             "tenantId":"customer-zero",
             "effectClass":"CUSTOMER_COMMUNICATION",
             "actionType":"SEND_COMMERCIAL_EMAIL",
-            "resourceRefs":["commercial:customer-zero/canary/r4-noeffect-20260927/event-1"],
+            "resourceRefs":["commercial:customer-zero/canary/r4-noeffect-20260927/event-2"],
             "payload":{
               "recipient":"buyer@example.invalid",
               "subject":"FinBridge Commercial R4 no-effect canary",
-              "contentRef":"draft:commercial-r4-noeffect-20260927-1",
+              "contentRef":"draft:commercial-r4-noeffect-20260927-2",
             },
             "executor":"SOVEREIGN_AGENTOPS",
             "directProviderExecution":False,
@@ -64,5 +64,7 @@ jobs:
           assert '"execution_authority": False' in text
           assert 'mandatory_human_review must be true' in text
           assert 'VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY' in app
-          print("VORTEX_COMMERCIAL_R4_NOEFFECT_BOUNDARY=PASS")
+          assert "event-1" not in text
+          assert "draft:commercial-r4-noeffect-20260927-1" not in text
+          print("VORTEX_COMMERCIAL_R4_NOEFFECT_EVENT2_BOUNDARY=PASS")
           PY
