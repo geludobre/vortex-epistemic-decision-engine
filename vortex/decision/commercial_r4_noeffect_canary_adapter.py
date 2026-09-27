@@ -25,10 +25,10 @@ ACTION_TYPE = "SEND_COMMERCIAL_EMAIL"
 DOMAIN = "COMMERCIAL_REVENUE"
 TENANT = "customer-zero"
 EFFECT_CLASS = "CUSTOMER_COMMUNICATION"
-RESOURCE_REF = "commercial:customer-zero/canary/r4-noeffect-20260927/event-1"
+RESOURCE_REF = "commercial:customer-zero/canary/r4-noeffect-20260927/event-2"
 RECIPIENT = "buyer@example.invalid"
 SUBJECT = "FinBridge Commercial R4 no-effect canary"
-CONTENT_REF = "draft:commercial-r4-noeffect-20260927-1"
+CONTENT_REF = "draft:commercial-r4-noeffect-20260927-2"
 
 
 class CommercialR4NoEffectCanaryDecisionError(RuntimeError):
@@ -208,7 +208,7 @@ class CommercialR4NoEffectCanaryDecisionAdapter:
             "domain": DOMAIN,
             "subject": {
                 "subject_type": "commercial_canary",
-                "subject_id": "r4-noeffect-20260927",
+                "subject_id": "r4-noeffect-20260927-event-2",
                 "tenant_id": TENANT,
                 "extensions": {
                     "canary_only": True,
