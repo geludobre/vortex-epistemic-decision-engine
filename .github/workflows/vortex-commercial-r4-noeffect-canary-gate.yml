@@ -1,0 +1,70 @@
+name: Vortex Commercial R4 No-Effect Canary Gate
+
+on:
+  pull_request:
+    branches:
+      - hardening/vortex-careeros-invitation-canary-20260920
+    paths:
+      - 'vortex/decision/commercial_r4_noeffect_canary_adapter.py'
+      - 'services/decision-api/app.py'
+      - 'tests/test_decision_api_service.py'
+      - '.github/workflows/vortex-commercial-r4-noeffect-canary-gate.yml'
+      - '.github/workflows/vortex-commercial-r4-noeffect-candidate-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact live-source ancestry
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor b50cc9a0f8ad60ff42959ecce2e803da34775be2 HEAD
+      - name: Install runtime tests
+        run: |
+          python -m pip install -e '.[test]'
+          python -m pip install -r services/decision-api/requirements.txt
+      - name: Compile bounded Commercial adapter
+        run: |
+          python -m py_compile vortex/decision/commercial_r4_noeffect_canary_adapter.py services/decision-api/app.py
+      - name: Run Vortex suite
+        run: python -m pytest -q
+      - name: Prove non-executing exact scope
+        run: |
+          python - <<'PY'
+          from vortex.decision.commercial_r4_noeffect_canary_adapter import canonical_action_input
+          x=canonical_action_input()
+          assert x == {
+            "domain":"COMMERCIAL_REVENUE",
+            "tenantId":"customer-zero",
+            "effectClass":"CUSTOMER_COMMUNICATION",
+            "actionType":"SEND_COMMERCIAL_EMAIL",
+            "resourceRefs":["commercial:customer-zero/canary/r4-noeffect-20260927/event-2"],
+            "payload":{
+              "recipient":"buyer@example.invalid",
+              "subject":"FinBridge Commercial R4 no-effect canary",
+              "contentRef":"draft:commercial-r4-noeffect-20260927-2",
+            },
+            "executor":"SOVEREIGN_AGENTOPS",
+            "directProviderExecution":False,
+          }
+          text=open("vortex/decision/commercial_r4_noeffect_canary_adapter.py").read()
+          app=open("services/decision-api/app.py").read()
+          assert '"execution_authority": False' in text
+          assert 'mandatory_human_review must be true' in text
+          assert 'VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY' in app
+          assert "event-1" not in text
+          assert "draft:commercial-r4-noeffect-20260927-1" not in text
+          print("VORTEX_COMMERCIAL_R4_NOEFFECT_EVENT2_BOUNDARY=PASS")
+          PY
