@@ -24,6 +24,10 @@ from vortex.decision.careeros_invitation_canary_adapter import (
     CareerOsInvitationCanaryDecisionAdapter,
     CareerOsInvitationCanaryDecisionError,
 )
+from vortex.decision.commercial_r4_noeffect_canary_adapter import (
+    CommercialR4NoEffectCanaryDecisionAdapter,
+    CommercialR4NoEffectCanaryDecisionError,
+)
 from vortex.decision.seos_adapter import (
     AdoDiagnosticDecisionAdapter,
     DiagnosticDecisionError,
@@ -53,6 +57,7 @@ DIAGNOSTIC_ADAPTER = AdoDiagnosticDecisionAdapter()
 COGNITIVE_ADAPTER = AdoCognitiveDecisionAdapter()
 HITL_COGNITIVE_ADAPTER = AdoHitlCognitiveDecisionAdapter()
 CAREEROS_INVITATION_CANARY_ADAPTER = CareerOsInvitationCanaryDecisionAdapter()
+COMMERCIAL_R4_NOEFFECT_CANARY_ADAPTER = CommercialR4NoEffectCanaryDecisionAdapter()
 
 
 def _truthy(name: str, default: bool = False) -> bool:
@@ -181,6 +186,9 @@ def readyz():
                 "careeros_invitation_canary_enabled": _truthy(
                     "VORTEX_ENABLE_CAREEROS_INVITATION_CANARY", default=False
                 ),
+                "commercial_r4_noeffect_canary_enabled": _truthy(
+                    "VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", default=False
+                ),
             }
         )
     except Exception as exc:
@@ -188,6 +196,54 @@ def readyz():
 
 
 
+
+
+@app.post("/v1/decision/commercial-r4-noeffect-canary")
+def commercial_r4_noeffect_canary():
+    if not _truthy("VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", default=False):
+        return jsonify(
+            {
+                "error": "COMMERCIAL_R4_NOEFFECT_CANARY_DISABLED",
+                "detail": "Commercial R4 no-effect canary recommendation is disabled",
+            }
+        ), 503
+    if not request.is_json:
+        return jsonify(
+            {"error": "UNSUPPORTED_MEDIA_TYPE", "detail": "application/json required"}
+        ), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(
+            {"error": "MALFORMED_REQUEST", "detail": "JSON object required"}
+        ), 400
+    errors = _schema_errors(REQUEST_VALIDATOR, payload)
+    if errors:
+        return jsonify({"error": "REQUEST_CONTRACT_REJECT", "details": errors}), 400
+    try:
+        model = _request_model(payload)
+        reference_result = ENGINE.evaluate(model)
+        artifact = COMMERCIAL_R4_NOEFFECT_CANARY_ADAPTER.build(
+            request=model,
+            reference_result=reference_result,
+        )
+        if artifact["execution_authority"] is not False:
+            raise RuntimeError(
+                "CONSTITUTION_REJECT: Vortex Commercial R4 canary gained execution authority"
+            )
+        return jsonify(artifact)
+    except CommercialR4NoEffectCanaryDecisionError as exc:
+        return jsonify(
+            {"error": "COMMERCIAL_R4_NOEFFECT_CANARY_REJECT", "detail": str(exc)}
+        ), 409
+    except ValueError as exc:
+        return jsonify(
+            {"error": "REQUEST_SEMANTIC_REJECT", "detail": str(exc)}
+        ), 400
+    except Exception as exc:
+        app.logger.exception("Vortex Commercial R4 no-effect canary decision failed closed")
+        return jsonify(
+            {"error": "VORTEX_FAIL_CLOSED", "detail": str(exc)}
+        ), 500
 
 
 @app.post("/v1/decision/careeros-invitation-canary")
