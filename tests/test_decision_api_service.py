@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from vortex.decision.commercial_r4_noeffect_canary_adapter import (
     canonical_action_input,
     canonical_action_input_hash as canonical_commercial_input_hash,
 )
-from vortex.decision.seos_adapter import recompute_reality_snapshot_hash
+from vortex.decision.seos_adapter import recompute_decision_hash, recompute_reality_snapshot_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "services" / "decision-api" / "app.py"
@@ -668,7 +669,7 @@ def _commercial_r4_noeffect_snapshot():
 
 def _commercial_r4_noeffect_request():
     return {
-        "request_id": "decision-request:commercial-r4-noeffect:20260927:0001",
+        "request_id": "decision-request:commercial-r4-noeffect:20260927:0002",
         "information_cutoff": "2026-09-27T10:00:00Z",
         "mandatory_human_review": True,
         "evidence": [{
@@ -687,7 +688,7 @@ def _commercial_r4_noeffect_request():
             "tool_name": "aug_commercial_effect",
             "action_type": "SEND_COMMERCIAL_EMAIL",
             "resource_refs": [
-                "commercial:customer-zero/canary/r4-noeffect-20260927/event-1"
+                "commercial:customer-zero/canary/r4-noeffect-20260927/event-2"
             ],
             "arguments": canonical_action_input(),
             "reality_snapshot": _commercial_r4_noeffect_snapshot(),
@@ -717,13 +718,40 @@ def test_commercial_r4_noeffect_canary_emits_exact_nonexecuting_recommendation(m
     assert body["epistemic_disposition"] == "ACTION_RECOMMENDATION"
     assert body["recommended_action"]["action_type"] == "SEND_COMMERCIAL_EMAIL"
     assert body["recommended_action"]["resource_refs"] == [
-        "commercial:customer-zero/canary/r4-noeffect-20260927/event-1"
+        "commercial:customer-zero/canary/r4-noeffect-20260927/event-2"
     ]
     assert body["recommended_action"]["canonical_input_hash"] == canonical_commercial_input_hash(args)
     assert args["payload"]["recipient"] == "buyer@example.invalid"
     assert args["directProviderExecution"] is False
     assert body["recommended_action"]["extensions"]["max_attempts"] == 1
     assert body["recommended_action"]["extensions"]["human_approval_required"] is True
+
+
+def test_commercial_r4_noeffect_event2_is_json_roundtrip_hash_stable(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", "true")
+    response = client.post(
+        "/v1/decision/commercial-r4-noeffect-canary",
+        json=_commercial_r4_noeffect_request(),
+    )
+    assert response.status_code == 200, response.get_json()
+    artifact = response.get_json()
+
+    def assert_no_float(value):
+        if isinstance(value, float):
+            raise AssertionError(f"float found in DecisionArtifact: {value!r}")
+        if isinstance(value, dict):
+            for child in value.values():
+                assert_no_float(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_no_float(child)
+
+    assert_no_float(artifact)
+    transported = json.loads(json.dumps(artifact, separators=(",", ":"), ensure_ascii=False))
+    assert recompute_decision_hash(transported) == artifact["decision_hash"]
+    assert transported["recommended_action"]["resource_refs"] == [
+        "commercial:customer-zero/canary/r4-noeffect-20260927/event-2"
+    ]
 
 
 def test_commercial_r4_noeffect_canary_rejects_recipient_substitution(monkeypatch):
