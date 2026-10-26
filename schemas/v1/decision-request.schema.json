@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finbridge.example/vortex/schemas/v1/decision-request.schema.json",
+  "title": "Vortex Decision Request V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "information_cutoff", "evidence"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "information_cutoff": {"type": "string", "format": "date-time"},
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "known_at", "payload"],
+        "properties": {
+          "evidence_id": {"type": "string", "minLength": 1},
+          "known_at": {"type": "string", "format": "date-time"},
+          "payload": {"type": "object"},
+          "provenance_sha256": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$"}
+        }
+      }
+    },
+    "objective": {"type": "object"},
+    "constraints": {"type": "object"},
+    "mandatory_human_review": {"type": "boolean", "default": false}
+  }
+}

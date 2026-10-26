@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vortex-epistemic-decision-engine"
+version = "0.1.0"
+description = "Reference implementation for failure-preserving epistemic decision architecture"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["vortex*"]
+exclude = ["schemas*", "services*", "protocols*", "tests*", "docs*", "benchmarks*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

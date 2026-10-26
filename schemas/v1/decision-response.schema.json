@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finbridge.example/vortex/schemas/v1/decision-response.schema.json",
+  "title": "Vortex Decision Response V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "decision", "reason", "admitted_evidence_ids", "rejected_evidence_ids", "information_cutoff", "execution_authority", "receipt_sha256"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "decision": {"enum": ["PROBE", "WAIT", "ABSTAIN", "HUMAN_REVIEW"]},
+    "reason": {"type": "string", "minLength": 1},
+    "admitted_evidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "rejected_evidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "information_cutoff": {"type": "string", "format": "date-time"},
+    "execution_authority": {"const": false},
+    "receipt_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+  }
+}
