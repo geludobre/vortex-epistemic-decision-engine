@@ -1,0 +1,10 @@
+{
+  "release": "VORTEX_C30_8_B1_B2_V0_8_PRODUCTION_PRODUCER_INTEGRATION_KIT",
+  "freeze_sha256": "20d187d15440c2115478a71177c941e953e2fd6b3288506f4a31c2e7b594bd90",
+  "tests": "54/54 PASS",
+  "B1": "0/50",
+  "B2": "0/50",
+  "prospective_collection_live": false,
+  "reason": "No real operational producer has been deployed/called from this environment.",
+  "next_gate": "Deploy producer hooks into actual FinBridge RIG/ESG and Sovereign AgentOps runtimes; accept first naturally occurring eligible events."
+}

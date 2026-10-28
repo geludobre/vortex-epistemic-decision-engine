@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SEOS RealitySnapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "reality_authority",
+    "information_cutoff",
+    "captured_at",
+    "subject_scope",
+    "completeness_state",
+    "temporal_policy_version",
+    "evidence_refs",
+    "prediction_refs",
+    "feature_snapshot_refs",
+    "source_state_refs",
+    "excluded_refs",
+    "degraded_sources",
+    "snapshot_hash",
+    "proof_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "snapshot_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+    "reality_authority": {"const": "RIG"},
+    "information_cutoff": {"$ref": "common.schema.json#/$defs/Timestamp"},
+    "captured_at": {"$ref": "common.schema.json#/$defs/Timestamp"},
+    "subject_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_classes"],
+      "properties": {
+        "entity_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "entity_types": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "providers": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "source_classes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+      }
+    },
+    "completeness_state": {"enum": ["complete", "degraded", "incomplete"]},
+    "temporal_policy_version": {"const": "known-at-v1"},
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "payload_hash", "known_at", "temporal_assurance"],
+        "properties": {
+          "evidence_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+          "payload_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+          "known_at": {"$ref": "common.schema.json#/$defs/Timestamp"},
+          "temporal_assurance": {"enum": ["STRICT_RECORDED", "DERIVED_OBSERVED_INGESTED", "AUTHORITY_CAPTURED_AT"]},
+          "source_id": {"type": "string", "minLength": 1},
+          "provenance_ref": {"type": "string", "minLength": 1},
+          "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+        }
+      }
+    },
+    "prediction_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prediction_id", "revision_id", "known_at", "epistemic_hash", "features_hash", "model_version", "feature_extractor_version"],
+        "properties": {
+          "prediction_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+          "revision_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+          "known_at": {"$ref": "common.schema.json#/$defs/Timestamp"},
+          "effective_at": {"$ref": "common.schema.json#/$defs/Timestamp"},
+          "lifecycle_state": {"type": "string", "minLength": 1},
+          "epistemic_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+          "features_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+          "model_version": {"type": "string", "minLength": 1},
+          "feature_extractor_version": {"type": "string", "minLength": 1},
+          "proof_ref": {"oneOf": [{"$ref": "common.schema.json#/$defs/ProofRef"}, {"type": "null"}]},
+          "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+        }
+      }
+    },
+    "feature_snapshot_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_id", "features_hash", "known_at", "model_version", "feature_extractor_version", "hash_algorithm"],
+        "properties": {
+          "artifact_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+          "features_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+          "known_at": {"$ref": "common.schema.json#/$defs/Timestamp"},
+          "model_version": {"type": "string", "minLength": 1},
+          "feature_extractor_version": {"type": "string", "minLength": 1},
+          "hash_algorithm": {"type": "string", "minLength": 1},
+          "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+        }
+      }
+    },
+    "source_state_refs": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/ArtifactRef"}},
+    "excluded_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "ref", "reason"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "ref": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1},
+          "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+        }
+      }
+    },
+    "degraded_sources": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "snapshot_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+    "proof_ref": {"oneOf": [{"$ref": "common.schema.json#/$defs/ProofRef"}, {"type": "null"}]},
+    "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"completeness_state": {"const": "complete"}}, "required": ["completeness_state"]},
+      "then": {"properties": {"excluded_refs": {"maxItems": 0}, "degraded_sources": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"completeness_state": {"const": "incomplete"}}, "required": ["completeness_state"]},
+      "then": {"properties": {"excluded_refs": {"minItems": 1}}}
+    }
+  ]
+}
