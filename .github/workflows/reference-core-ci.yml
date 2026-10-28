@@ -2,9 +2,7 @@ name: Vortex Reference Core CI
 
 on:
   pull_request:
-    branches:
-      - main
-      - hardening/vortex-aws-runtime-b7fcfa6
+    branches: [main]
     paths:
       - 'vortex/**'
       - 'schemas/**'
