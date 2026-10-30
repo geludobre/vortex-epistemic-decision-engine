@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SEOS DecisionArtifact v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "decision_authority",
+    "decision_request_id",
+    "domain",
+    "subject",
+    "information_cutoff",
+    "created_at",
+    "inputs",
+    "evidence_admission",
+    "epistemic_disposition",
+    "recommended_action",
+    "reason",
+    "reason_codes",
+    "uncertainty",
+    "engine",
+    "risk_assessment",
+    "execution_authority",
+    "decision_hash",
+    "integrity",
+    "proof_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "decision_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+    "decision_authority": {"const": "SOVEREIGN_VORTEX"},
+    "decision_request_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+    "domain": {"type": "string", "minLength": 1},
+    "subject": {"$ref": "common.schema.json#/$defs/Subject"},
+    "information_cutoff": {"$ref": "common.schema.json#/$defs/Timestamp"},
+    "created_at": {"$ref": "common.schema.json#/$defs/Timestamp"},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reality_snapshot_ref", "forecast_refs", "additional_artifact_refs"],
+      "properties": {
+        "reality_snapshot_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["snapshot_id", "snapshot_hash", "information_cutoff"],
+          "properties": {
+            "snapshot_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+            "snapshot_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+            "information_cutoff": {"$ref": "common.schema.json#/$defs/Timestamp"}
+          }
+        },
+        "forecast_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["forecast_id", "artifact_hash", "information_cutoff"],
+            "properties": {
+              "forecast_id": {"$ref": "common.schema.json#/$defs/ArtifactId"},
+              "artifact_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+              "information_cutoff": {"$ref": "common.schema.json#/$defs/Timestamp"}
+            }
+          }
+        },
+        "additional_artifact_refs": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/ArtifactRef"}}
+      }
+    },
+    "evidence_admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admitted_evidence_ids", "rejected_evidence_ids"],
+      "properties": {
+        "admitted_evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/ArtifactId"}},
+        "rejected_evidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/ArtifactId"}}
+      }
+    },
+    "epistemic_disposition": {
+      "enum": ["ACTION_RECOMMENDATION", "PROBE", "WAIT", "ABSTAIN", "HUMAN_REVIEW"]
+    },
+    "recommended_action": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action_type", "resource_refs", "canonical_input_hash"],
+          "properties": {
+            "action_type": {"type": "string", "minLength": 1},
+            "resource_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "canonical_input_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+            "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+          }
+        }
+      ]
+    },
+    "reason": {"type": "string", "minLength": 1},
+    "reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantics", "dimensions"],
+      "properties": {
+        "semantics": {"type": "string", "minLength": 1},
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0}
+        },
+        "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine_id", "engine_version", "policy_version", "adapter_id", "adapter_version"],
+      "properties": {
+        "engine_id": {"type": "string", "minLength": 1},
+        "engine_version": {"type": "string", "minLength": 1},
+        "policy_version": {"type": "string", "minLength": 1},
+        "adapter_id": {"type": ["string", "null"]},
+        "adapter_version": {"type": ["string", "null"]},
+        "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+      }
+    },
+    "risk_assessment": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["utility", "catastrophe_probability", "catastrophe_threshold", "admissible"],
+          "properties": {
+            "utility": {"type": ["number", "null"]},
+            "catastrophe_probability": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "catastrophe_threshold": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "admissible": {"type": "boolean"},
+            "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+          }
+        }
+      ]
+    },
+    "execution_authority": {"const": false},
+    "decision_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assurance_level", "algorithm", "body_hash", "key_id", "signature"],
+      "properties": {
+        "assurance_level": {"enum": ["HASH_ONLY", "SIGNED"]},
+        "algorithm": {"enum": ["SHA-256", "Ed25519"]},
+        "body_hash": {"$ref": "common.schema.json#/$defs/Hex64"},
+        "key_id": {"type": ["string", "null"]},
+        "signature": {"type": ["string", "null"]},
+        "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"assurance_level": {"const": "HASH_ONLY"}}, "required": ["assurance_level"]},
+          "then": {"properties": {"algorithm": {"const": "SHA-256"}, "key_id": {"type": "null"}, "signature": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"assurance_level": {"const": "SIGNED"}}, "required": ["assurance_level"]},
+          "then": {"properties": {"algorithm": {"const": "Ed25519"}, "key_id": {"type": "string", "minLength": 1}, "signature": {"type": "string", "minLength": 32}}}
+        }
+      ]
+    },
+    "proof_ref": {"oneOf": [{"$ref": "common.schema.json#/$defs/ProofRef"}, {"type": "null"}]},
+    "extensions": {"$ref": "common.schema.json#/$defs/Extensions"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"epistemic_disposition": {"const": "ACTION_RECOMMENDATION"}}, "required": ["epistemic_disposition"]},
+      "then": {"properties": {"recommended_action": {"type": "object"}}},
+      "else": {"properties": {"recommended_action": {"type": "null"}}}
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+name: Vortex CareerOS Invitation Canary Gate
+
+on:
+  push:
+    branches:
+      - 'hardening/vortex-careeros-invitation-canary-20260920'
+  pull_request:
+    paths:
+      - 'vortex/decision/careeros_invitation_canary_adapter.py'
+      - 'services/decision-api/app.py'
+      - 'tests/test_decision_api_service.py'
+      - '.github/workflows/vortex-careeros-invitation-canary-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  careeros-invitation-canary-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact live-source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e '5e2d0e5c17db98c4496e2471954db91881fcac30^{commit}'
+          git merge-base --is-ancestor 5e2d0e5c17db98c4496e2471954db91881fcac30 "${GITHUB_SHA}"
+
+      - name: Install runtime test dependencies
+        run: |
+          python -m pip install -e '.[test]'
+          python -m pip install -r services/decision-api/requirements.txt
+
+      - name: Compile bounded CareerOS canary runtime
+        run: |
+          python -m py_compile \
+            vortex/decision/careeros_invitation_canary_adapter.py \
+            services/decision-api/app.py
+
+      - name: Run full Vortex unit and falsification suite
+        run: python -m pytest -q
+
+      - name: Verify canary remains non-executing and non-deliverable
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib
+          text = pathlib.Path("vortex/decision/careeros_invitation_canary_adapter.py").read_text()
+          app = pathlib.Path("services/decision-api/app.py").read_text()
+          required = [
+              'OBJECTIVE_KIND = "CAREEROS_INVITATION_CANARY_V1"',
+              'TOOL_NAME = "aug_business_effect"',
+              'ACTION_TYPE = "career.invitation.create_and_enqueue"',
+              'CUSTOMER_ZERO_TENANT = "customer-zero"',
+              'CANARY_RECIPIENT = "customer-zero-test@example.invalid"',
+              'CANARY_ROLE = "member"',
+              'mandatory_human_review must be true',
+              '"execution_authority": False',
+              '"canary_only": True',
+              '"human_approval_required": True',
+          ]
+          for marker in required:
+              assert marker in text, marker
+          assert 'VORTEX_ENABLE_CAREEROS_INVITATION_CANARY' in app
+          assert '/v1/decision/careeros-invitation-canary' in app
+          print("VORTEX_CAREEROS_INVITATION_CANARY_NON_EXECUTING_BOUNDARY=PASS")
+          PY

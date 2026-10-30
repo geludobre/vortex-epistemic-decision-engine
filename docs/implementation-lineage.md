@@ -1,7 +1,7 @@
 # Vortex 1.0 Public Implementation Lineage Audit
 
-**Date:** 2026-09-19  
-**Status:** SOURCE-CUSTODY AUDIT FOR PUBLIC CODE MIGRATION  
+**Date:** 2026-09-19
+**Status:** SOURCE-CUSTODY AUDIT FOR PUBLIC CODE MIGRATION
 **Purpose:** determine which historical Vortex elements can be ported as recovered source, which can only be reimplemented from frozen protocols, and which must remain failed/experimental evidence.
 
 ## Rule
