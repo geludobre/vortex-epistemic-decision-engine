@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hmac
 from pathlib import Path
 from typing import Any
 
@@ -453,6 +454,20 @@ def geopolitical_evidence():
             "error": "GEO_OPERATOR_DISABLED",
             "detail": "Geopolitical source admission has not been enabled",
         }), 503
+    # Do not accept self-declared RIG snapshots from anonymous VPC callers.
+    # The credential is provided by the deployment's secret store, never source.
+    expected_token = os.environ.get("VORTEX_GEO_SERVICE_TOKEN", "")
+    if len(expected_token) < 32:
+        return jsonify({"error": "GEO_TRUSTED_SERVICE_IDENTITY_NOT_CONFIGURED"}), 503
+    authorization = request.headers.get("Authorization", "")
+    prefix = "Bearer "
+    if (not authorization.startswith(prefix)
+            or not hmac.compare_digest(authorization[len(prefix):], expected_token)):
+        return jsonify({"error": "GEO_SERVICE_IDENTITY_REJECT"}), 401
+    if request.headers.get("X-Vortex-Source-OS") != "RIG":
+        return jsonify({"error": "GEO_SOURCE_PRINCIPAL_REJECT"}), 403
+    if request.headers.get("X-Vortex-Tenant-ID") != "customer-zero":
+        return jsonify({"error": "GEO_TENANT_SCOPE_REJECT"}), 403
     if not request.is_json:
         return jsonify({"error": "UNSUPPORTED_MEDIA_TYPE", "detail": "application/json required"}), 415
     payload = request.get_json(silent=True)
