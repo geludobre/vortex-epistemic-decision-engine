@@ -205,7 +205,7 @@ TEST_RIG_SERVICE_TOKEN = "unit-test-only-rig-principal-credential-1234567890"
 
 def _rig_headers():
     return {
-        "Authorization": "Bearer " + TEST_RIG_SERVICE_TOKEN,
+        "X-Vortex-Service-Token": TEST_RIG_SERVICE_TOKEN,
         "X-Vortex-Source-OS": "RIG",
         "X-Vortex-Tenant-ID": "customer-zero",
     }
@@ -255,7 +255,7 @@ def test_api_route_rejects_unauthenticated_and_wrong_service_credential(monkeypa
     assert unauth.status_code == 401
     assert unauth.get_json()["error"] == "GEO_SERVICE_IDENTITY_REJECT"
     bad = _rig_headers()
-    bad["Authorization"] = "Bearer wrong-token"
+    bad["X-Vortex-Service-Token"] = "wrong-token"
     denied = _client().post(endpoint, json=make_request(), headers=bad)
     assert denied.status_code == 401
 
@@ -274,3 +274,19 @@ def test_api_route_rejects_wrong_origin_and_cross_tenant(monkeypatch):
     resp = _client().post(endpoint, json=make_request(), headers=bad_tenant)
     assert resp.status_code == 403
     assert resp.get_json()["error"] == "GEO_TENANT_SCOPE_REJECT"
+
+
+def test_api_gateway_sigv4_header_not_confused_with_backend_source_identity(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", "true")
+    monkeypatch.setenv("VORTEX_GEO_SERVICE_TOKEN", TEST_RIG_SERVICE_TOKEN)
+    # IAM authentication is performed at the existing API Gateway route.
+    # Preserve the SigV4 Authorization header while binding an independent
+    # internal RIG service identity; this Flask test does NOT verify IAM.
+    hdr = _rig_headers()
+    hdr["Authorization"] = "AWS4-HMAC-SHA256 Credential=test-only-sigv4-placeholder"
+    response = _client().post(
+        "/v1/decision/geopolitical-evidence",
+        json=make_request(), headers=hdr
+    )
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()["execution_authority"] is False
