@@ -39,7 +39,7 @@ from vortex.decision.geopolitical_evidence_triage import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_MODE = "SHADOW_REFERENCE"
+RUNTIME_MODE = os.environ.get("VORTEX_RUNTIME_MODE", "SHADOW_REFERENCE").strip().upper()
 REQUEST_SCHEMA_PATH = ROOT / "schemas" / "v1" / "decision-request.schema.json"
 RESPONSE_SCHEMA_PATH = ROOT / "schemas" / "v1" / "decision-response.schema.json"
 SOURCE_FILE = ROOT / "SOURCE_GIT_SHA"
@@ -75,6 +75,20 @@ def _truthy(name: str, default: bool = False) -> bool:
 
 def _exact_sha(value: str) -> bool:
     return len(value) == 40 and all(ch in "0123456789abcdef" for ch in value)
+
+
+def _validated_runtime_mode() -> str:
+    # Production is a bounded, authenticated geopolitical source-to-decision
+    # operator. It is NOT a blanket claim that G4/G5 or all Eye capabilities
+    # are completed. The source and the caller remain independently attested.
+    if RUNTIME_MODE not in {"SHADOW_REFERENCE", "PRODUCTION_NATIVE_GEO"}:
+        raise RuntimeError("VORTEX_RUNTIME_MODE_UNKNOWN")
+    if RUNTIME_MODE == "PRODUCTION_NATIVE_GEO":
+        if not _truthy("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", default=False):
+            raise RuntimeError("PRODUCTION_GEO_OPERATOR_NOT_ENABLED")
+        if len(os.environ.get("VORTEX_GEO_SERVICE_TOKEN", "")) < 32:
+            raise RuntimeError("PRODUCTION_GEO_SERVICE_IDENTITY_MISSING")
+    return RUNTIME_MODE
 
 
 def source_git_sha(*, required: bool = False) -> str | None:
@@ -162,6 +176,7 @@ def healthz():
 @app.get("/readyz")
 def readyz():
     try:
+        _validated_runtime_mode()
         required = _truthy("VORTEX_REQUIRE_EXACT_SOURCE", default=True)
         sha = source_git_sha(required=required)
         sentinel = ENGINE.evaluate(
