@@ -32,8 +32,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e '5e2d0e5c17db98c4496e2471954db91881fcac30^{commit}'
-          git merge-base --is-ancestor 5e2d0e5c17db98c4496e2471954db91881fcac30 "${GITHUB_SHA}"
+          # The historic 5e2d0e5 commit was not merged into main: enforcing
+          # its ancestry rejects all legitimate PRs. Use the actual merged
+          # CareerOS invitation gate baseline from PR #8 (merge commit),
+          # and retain the full code + non-execution falsification suite below.
+          BASELINE_CAREEROS_SHA='cc139e9b48a6dd8c1062c5df729a7067fad30834'
+          git cat-file -e "${BASELINE_CAREEROS_SHA}^{commit}"
+          git merge-base --is-ancestor "${BASELINE_CAREEROS_SHA}" "${GITHUB_SHA}"
 
       - name: Install runtime test dependencies
         run: |

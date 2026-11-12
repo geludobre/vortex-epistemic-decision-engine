@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hmac
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,10 @@ from vortex.decision.seos_adapter import (
     AdoDiagnosticDecisionAdapter,
     DiagnosticDecisionError,
 )
+from vortex.decision.geopolitical_evidence_triage import (
+    GeopoliticalEvidenceTriageAdapter,
+    GeopoliticalDecisionError,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_MODE = "SHADOW_REFERENCE"
@@ -58,6 +63,7 @@ COGNITIVE_ADAPTER = AdoCognitiveDecisionAdapter()
 HITL_COGNITIVE_ADAPTER = AdoHitlCognitiveDecisionAdapter()
 CAREEROS_INVITATION_CANARY_ADAPTER = CareerOsInvitationCanaryDecisionAdapter()
 COMMERCIAL_R4_NOEFFECT_CANARY_ADAPTER = CommercialR4NoEffectCanaryDecisionAdapter()
+GEOPOLITICAL_TRIAGE_ADAPTER = GeopoliticalEvidenceTriageAdapter()
 
 
 def _truthy(name: str, default: bool = False) -> bool:
@@ -188,6 +194,9 @@ def readyz():
                 ),
                 "commercial_r4_noeffect_canary_enabled": _truthy(
                     "VORTEX_ENABLE_COMMERCIAL_R4_NOEFFECT_CANARY", default=False
+                ),
+                "geopolitical_evidence_triage_enabled": _truthy(
+                    "VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", default=False
                 ),
             }
         )
@@ -436,6 +445,55 @@ def ado_diagnostic():
         return jsonify(
             {"error": "VORTEX_FAIL_CLOSED", "detail": str(exc)}
         ), 500
+
+@app.post("/v1/decision/geopolitical-evidence")
+def geopolitical_evidence():
+    """Bounded live non-effect operator: RIG-signed data must be ingested upstream."""
+    if not _truthy("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", default=False):
+        return jsonify({
+            "error": "GEO_OPERATOR_DISABLED",
+            "detail": "Geopolitical source admission has not been enabled",
+        }), 503
+    # Do not accept self-declared RIG snapshots from anonymous VPC callers.
+    # The credential is provided by the deployment's secret store, never source.
+    expected_token = os.environ.get("VORTEX_GEO_SERVICE_TOKEN", "")
+    if len(expected_token) < 32:
+        return jsonify({"error": "GEO_TRUSTED_SERVICE_IDENTITY_NOT_CONFIGURED"}), 503
+    # API Gateway requires SigV4 in Authorization; do not shadow it with
+    # an incompatible Bearer token. Independent backend trust uses a separate
+    # non-logged service header, admitted only after the IAM front door.
+    service_token = request.headers.get("X-Vortex-Service-Token", "")
+    if not hmac.compare_digest(service_token, expected_token):
+        return jsonify({"error": "GEO_SERVICE_IDENTITY_REJECT"}), 401
+    if request.headers.get("X-Vortex-Source-OS") != "RIG":
+        return jsonify({"error": "GEO_SOURCE_PRINCIPAL_REJECT"}), 403
+    if request.headers.get("X-Vortex-Tenant-ID") != "customer-zero":
+        return jsonify({"error": "GEO_TENANT_SCOPE_REJECT"}), 403
+    if not request.is_json:
+        return jsonify({"error": "UNSUPPORTED_MEDIA_TYPE", "detail": "application/json required"}), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "MALFORMED_REQUEST", "detail": "JSON object required"}), 400
+    errors = _schema_errors(REQUEST_VALIDATOR, payload)
+    if errors:
+        return jsonify({"error": "REQUEST_CONTRACT_REJECT", "details": errors}), 400
+    try:
+        model = _request_model(payload)
+        reference = ENGINE.evaluate(model)
+        artifact = GEOPOLITICAL_TRIAGE_ADAPTER.build(
+            request=model, reference_result=reference
+        )
+        if artifact["execution_authority"] is not False:
+            raise RuntimeError("GEO_EXECUTION_AUTHORITY_FORBIDDEN")
+        return jsonify(artifact)
+    except GeopoliticalDecisionError as exc:
+        return jsonify({"error": "GEO_ADMISSION_REJECT", "detail": str(exc)}), 409
+    except ValueError as exc:
+        return jsonify({"error": "REQUEST_SEMANTIC_REJECT", "detail": str(exc)}), 400
+    except Exception:
+        app.logger.exception("Native geopolitical decision failed closed")
+        return jsonify({"error": "VORTEX_FAIL_CLOSED"}), 500
+
 
 @app.post("/v1/decision/evaluate")
 def evaluate():
