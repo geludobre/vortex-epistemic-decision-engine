@@ -459,10 +459,11 @@ def geopolitical_evidence():
     expected_token = os.environ.get("VORTEX_GEO_SERVICE_TOKEN", "")
     if len(expected_token) < 32:
         return jsonify({"error": "GEO_TRUSTED_SERVICE_IDENTITY_NOT_CONFIGURED"}), 503
-    authorization = request.headers.get("Authorization", "")
-    prefix = "Bearer "
-    if (not authorization.startswith(prefix)
-            or not hmac.compare_digest(authorization[len(prefix):], expected_token)):
+    # API Gateway requires SigV4 in Authorization; do not shadow it with
+    # an incompatible Bearer token. Independent backend trust uses a separate
+    # non-logged service header, admitted only after the IAM front door.
+    service_token = request.headers.get("X-Vortex-Service-Token", "")
+    if not hmac.compare_digest(service_token, expected_token):
         return jsonify({"error": "GEO_SERVICE_IDENTITY_REJECT"}), 401
     if request.headers.get("X-Vortex-Source-OS") != "RIG":
         return jsonify({"error": "GEO_SOURCE_PRINCIPAL_REJECT"}), 403
