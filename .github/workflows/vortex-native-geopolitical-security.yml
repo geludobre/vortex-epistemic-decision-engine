@@ -1,0 +1,61 @@
+name: Vortex Native Geopolitical Security Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'vortex/decision/geopolitical_evidence_triage.py'
+      - 'services/decision-api/app.py'
+      - 'tests/test_geopolitical_evidence_triage.py'
+      - '.github/workflows/vortex-native-geopolitical-security.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  geo-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded static analyzer
+        run: python -m pip install 'bandit>=1.8,<2'
+      - name: Native geopolitical route and operator static scan
+        run: |
+          python -m bandit -q --severity-level medium --confidence-level medium \
+            vortex/decision/geopolitical_evidence_triage.py \
+            services/decision-api/app.py
+      - name: Ensure service identity binding and fail-closed operator remain present
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          route=Path('services/decision-api/app.py').read_text()
+          native=Path('vortex/decision/geopolitical_evidence_triage.py').read_text()
+          required_route=(
+              '/v1/decision/geopolitical-evidence',
+              'VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE',
+              'VORTEX_GEO_SERVICE_TOKEN',
+              'hmac.compare_digest',
+              'GEO_SERVICE_IDENTITY_REJECT',
+              'GEO_TENANT_SCOPE_REJECT',
+          )
+          required_native=(
+              'recompute_decision_hash',
+              '_validated_reality_snapshot',
+              '_validate_decision',
+              '"execution_authority": False',
+              '"recommended_action": None',
+              'GEO_PAYLOAD_CUSTODY_MISMATCH',
+              'GEO_KNOWN_AT_DRIFT',
+          )
+          for marker in required_route:
+              assert marker in route, marker
+          for marker in required_native:
+              assert marker in native, marker
+          print("GEO_NATIVE_ROUTE_TRUST_AND_NON_EFFECT_SEMANTICS=PASS")
+          PY
