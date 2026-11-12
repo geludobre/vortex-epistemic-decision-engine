@@ -1,0 +1,82 @@
+name: Vortex Native Geopolitical Main ECR Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: vortex-native-geo-main-image
+  cancel-in-progress: false
+
+jobs:
+  main-exact-source-release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AWS_REGION: eu-central-1
+      ECR_REGISTRY: 592755832023.dkr.ecr.eu-central-1.amazonaws.com
+      ECR_REPOSITORY: finbridge/vortex-customerzero
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify reviewed main HEAD and Python test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse 'HEAD^{tree}' > /tmp/vortex-geo-tree
+          python -m pip install --disable-pip-version-check -e '.[test]' -r services/decision-api/requirements.txt
+          python -m pytest -q
+          python -m pip install --disable-pip-version-check 'bandit>=1.8,<2'
+          python -m bandit -q --severity-level medium --confidence-level medium \
+            services/decision-api/app.py \
+            vortex/decision/geopolitical_evidence_triage.py
+      - name: Pin and build immutable source image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-slim
+          BASE="$(docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}')"
+          case "$BASE" in *@sha256:*) ;; *) echo BASE_IMAGE_DIGEST_INVALID >&2; exit 1 ;; esac
+          docker build --pull \
+            --build-arg PYTHON_BASE="$BASE" \
+            --build-arg SOURCE_GIT_SHA="$GITHUB_SHA" \
+            --file Dockerfile.vortex \
+            --tag "vortex-geo:$GITHUB_SHA" .
+          docker run --rm --entrypoint python "vortex-geo:$GITHUB_SHA" \
+            -c "from pathlib import Path; assert Path('/app/vortex/decision/geopolitical_evidence_triage.py').is_file(); assert len(Path('/app/SOURCE_GIT_SHA').read_text().strip()) == 40; print('NATIVE_GEO_SOURCE_PRESENT=PASS')"
+      - name: Assume existing main-bound ECR-only publishing role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::592755832023:role/finbridge/customer-zero/FinBridgeVortexGithubActionsCustomerZeroRole
+          role-session-name: vortex-geo-main-source-release
+          aws-region: eu-central-1
+      - name: Authenticate existing ECR
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Publish exact source image and record OCI digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST="$ECR_REGISTRY/$ECR_REPOSITORY:geo-$GITHUB_SHA"
+          docker tag "vortex-geo:$GITHUB_SHA" "$DEST"
+          docker push "$DEST"
+          DIGEST="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=geo-$GITHUB_SHA" --query 'imageDetails[0].imageDigest' --output text)"
+          case "$DIGEST" in sha256:*) ;; *) echo OCI_DIGEST_INVALID >&2; exit 1 ;; esac
+          echo "VORTEX_NATIVE_GEO_ECR=$ECR_REGISTRY/$ECR_REPOSITORY@$DIGEST"
+          echo "EXACT_SOURCE_SHA=$GITHUB_SHA"
+          {
+            echo '### Vortex native geo source OCI release'
+            echo "Git source: $GITHUB_SHA"
+            echo "Git tree: $(cat /tmp/vortex-geo-tree)"
+            echo "OCI digest: $DIGEST"
+            echo 'ECS promotion: NOT DEPLOYED; independent identity, VPC/Gateway acceptance and rollback required.'
+          } >> "$GITHUB_STEP_SUMMARY"
