@@ -200,9 +200,24 @@ def test_api_route_disabled_by_default(monkeypatch):
     assert response.get_json()["error"] == "GEO_OPERATOR_DISABLED"
 
 
+TEST_RIG_SERVICE_TOKEN = "unit-test-only-rig-principal-credential-1234567890"
+
+
+def _rig_headers():
+    return {
+        "Authorization": "Bearer " + TEST_RIG_SERVICE_TOKEN,
+        "X-Vortex-Source-OS": "RIG",
+        "X-Vortex-Tenant-ID": "customer-zero",
+    }
+
+
 def test_api_route_returns_canonical_decision_artifact(monkeypatch):
     monkeypatch.setenv("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", "true")
-    response = _client().post("/v1/decision/geopolitical-evidence", json=make_request())
+    monkeypatch.setenv("VORTEX_GEO_SERVICE_TOKEN", TEST_RIG_SERVICE_TOKEN)
+    response = _client().post(
+        "/v1/decision/geopolitical-evidence",
+        json=make_request(), headers=_rig_headers()
+    )
     assert response.status_code == 200, response.get_json()
     body = response.get_json()
     assert body["epistemic_disposition"] == "HUMAN_REVIEW"
@@ -211,8 +226,51 @@ def test_api_route_returns_canonical_decision_artifact(monkeypatch):
 
 def test_api_route_rejects_an_unexpected_payload_property(monkeypatch):
     monkeypatch.setenv("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", "true")
+    monkeypatch.setenv("VORTEX_GEO_SERVICE_TOKEN", TEST_RIG_SERVICE_TOKEN)
     payload = make_request()
     payload["evidence"][0]["payload"]["contact_email"] = "private@example.com"
-    response = _client().post("/v1/decision/geopolitical-evidence", json=payload)
+    response = _client().post(
+        "/v1/decision/geopolitical-evidence", json=payload, headers=_rig_headers()
+    )
     assert response.status_code == 409
     assert response.get_json()["error"] == "GEO_ADMISSION_REJECT"
+
+
+def test_api_route_requires_configured_nontrivial_service_secret(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", "true")
+    monkeypatch.delenv("VORTEX_GEO_SERVICE_TOKEN", raising=False)
+    resp = _client().post(
+        "/v1/decision/geopolitical-evidence",
+        json=make_request(), headers=_rig_headers()
+    )
+    assert resp.status_code == 503
+    assert resp.get_json()["error"] == "GEO_TRUSTED_SERVICE_IDENTITY_NOT_CONFIGURED"
+
+
+def test_api_route_rejects_unauthenticated_and_wrong_service_credential(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", "true")
+    monkeypatch.setenv("VORTEX_GEO_SERVICE_TOKEN", TEST_RIG_SERVICE_TOKEN)
+    endpoint = "/v1/decision/geopolitical-evidence"
+    unauth = _client().post(endpoint, json=make_request())
+    assert unauth.status_code == 401
+    assert unauth.get_json()["error"] == "GEO_SERVICE_IDENTITY_REJECT"
+    bad = _rig_headers()
+    bad["Authorization"] = "Bearer wrong-token"
+    denied = _client().post(endpoint, json=make_request(), headers=bad)
+    assert denied.status_code == 401
+
+
+def test_api_route_rejects_wrong_origin_and_cross_tenant(monkeypatch):
+    monkeypatch.setenv("VORTEX_ENABLE_GEO_EVIDENCE_TRIAGE", "true")
+    monkeypatch.setenv("VORTEX_GEO_SERVICE_TOKEN", TEST_RIG_SERVICE_TOKEN)
+    endpoint = "/v1/decision/geopolitical-evidence"
+    bad_origin = _rig_headers()
+    bad_origin["X-Vortex-Source-OS"] = "OTHER"
+    resp = _client().post(endpoint, json=make_request(), headers=bad_origin)
+    assert resp.status_code == 403
+    assert resp.get_json()["error"] == "GEO_SOURCE_PRINCIPAL_REJECT"
+    bad_tenant = _rig_headers()
+    bad_tenant["X-Vortex-Tenant-ID"] = "another-tenant"
+    resp = _client().post(endpoint, json=make_request(), headers=bad_tenant)
+    assert resp.status_code == 403
+    assert resp.get_json()["error"] == "GEO_TENANT_SCOPE_REJECT"
